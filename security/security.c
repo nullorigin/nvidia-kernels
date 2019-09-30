@@ -5805,84 +5805,11 @@ int security_locked_down(enum lockdown_reason what)
 }
 EXPORT_SYMBOL(security_locked_down);
 
-/**
- * security_bdev_alloc() - Allocate a block device LSM blob
- * @bdev: block device
- *
- * Allocate and attach a security structure to @bdev->bd_security.  The
- * security field is initialized to NULL when the bdev structure is
- * allocated.
- *
- * Return: Return 0 if operation was successful.
- */
-int security_bdev_alloc(struct block_device *bdev)
+int security_lock_kernel_down(const char *where, enum lockdown_reason level)
 {
-	int rc = 0;
-
-	rc = lsm_bdev_alloc(bdev);
-	if (unlikely(rc))
-		return rc;
-
-	rc = call_int_hook(bdev_alloc_security, bdev);
-	if (unlikely(rc))
-		security_bdev_free(bdev);
-
-	return rc;
+	return call_int_hook(lock_kernel_down, 0, where, level);
 }
-EXPORT_SYMBOL(security_bdev_alloc);
-
-/**
- * security_bdev_free() - Free a block device's LSM blob
- * @bdev: block device
- *
- * Deallocate the bdev security structure and set @bdev->bd_security to NULL.
- */
-void security_bdev_free(struct block_device *bdev)
-{
-	if (!bdev->bd_security)
-		return;
-
-	call_void_hook(bdev_free_security, bdev);
-
-	kfree(bdev->bd_security);
-	bdev->bd_security = NULL;
-}
-EXPORT_SYMBOL(security_bdev_free);
-
-/**
- * security_bdev_setintegrity() - Set the device's integrity data
- * @bdev: block device
- * @type: type of integrity, e.g. hash digest, signature, etc
- * @value: the integrity value
- * @size: size of the integrity value
- *
- * Register a verified integrity measurement of a bdev with LSMs.
- * LSMs should free the previously saved data if @value is NULL.
- * Please note that the new hook should be invoked every time the security
- * information is updated to keep these data current. For example, in dm-verity,
- * if the mapping table is reloaded and configured to use a different dm-verity
- * target with a new roothash and signing information, the previously stored
- * data in the LSM blob will become obsolete. It is crucial to re-invoke the
- * hook to refresh these data and ensure they are up to date. This necessity
- * arises from the design of device-mapper, where a device-mapper device is
- * first created, and then targets are subsequently loaded into it. These
- * targets can be modified multiple times during the device's lifetime.
- * Therefore, while the LSM blob is allocated during the creation of the block
- * device, its actual contents are not initialized at this stage and can change
- * substantially over time. This includes alterations from data that the LSMs
- * 'trusts' to those they do not, making it essential to handle these changes
- * correctly. Failure to address this dynamic aspect could potentially allow
- * for bypassing LSM checks.
- *
- * Return: Returns 0 on success, negative values on failure.
- */
-int security_bdev_setintegrity(struct block_device *bdev,
-			       enum lsm_integrity_type type, const void *value,
-			       size_t size)
-{
-	return call_int_hook(bdev_setintegrity, bdev, type, value, size);
-}
-EXPORT_SYMBOL(security_bdev_setintegrity);
+EXPORT_SYMBOL(security_lock_kernel_down);
 
 #ifdef CONFIG_PERF_EVENTS
 /**
