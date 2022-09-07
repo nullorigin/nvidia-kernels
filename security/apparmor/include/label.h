@@ -237,7 +237,10 @@ int aa_label_next_confined(struct aa_label *l, int i);
 	struct label_it i;						\
 	int ret = 0;							\
 	label_for_each(i, (L), profile) {				\
-		if (RULE_MEDIATES(&profile->rules, (C))) {		\
+		struct aa_ruleset *rules =				\
+			list_first_entry(&profile->rules, typeof(*rules),\
+					 list);				\
+		if (RULE_MEDIATES(rules, (C))) {			\
 			ret = 1;					\
 			break;						\
 		}							\
