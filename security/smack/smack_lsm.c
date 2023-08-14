@@ -3429,15 +3429,19 @@ static int smack_ipc_permission(struct kern_ipc_perm *ipp, short flag)
 }
 
 /**
- * smack_ipc_getlsmprop - Extract smack security data
+ * smack_ipc_getlsmblob - Extract smack security data
  * @ipp: the object permissions
- * @prop: where result will be saved
+ * @blob: where result will be saved
  */
-static void smack_ipc_getlsmprop(struct kern_ipc_perm *ipp, struct lsm_prop *prop)
+static void smack_ipc_getlsmblob(struct kern_ipc_perm *ipp,
+				 struct lsmblob *blob)
 {
 	struct smack_known **iskpp = smack_ipc(ipp);
+	struct smack_known *iskp = *iskpp;
 
-	prop->smack.skp = *iskpp;
+	blob->smack.skp = iskp;
+	/* stacking scaffolding */
+	blob->scaffold.secid = iskp->smk_secid;
 }
 
 /**
@@ -5135,7 +5139,7 @@ static struct security_hook_list smack_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(task_to_inode, smack_task_to_inode),
 
 	LSM_HOOK_INIT(ipc_permission, smack_ipc_permission),
-	LSM_HOOK_INIT(ipc_getlsmprop, smack_ipc_getlsmprop),
+	LSM_HOOK_INIT(ipc_getlsmblob, smack_ipc_getlsmblob),
 
 	LSM_HOOK_INIT(msg_msg_alloc_security, smack_msg_msg_alloc_security),
 

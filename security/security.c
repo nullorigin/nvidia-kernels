@@ -3752,17 +3752,17 @@ int security_ipc_permission(struct kern_ipc_perm *ipcp, short flag)
 }
 
 /**
- * security_ipc_getlsmprop() - Get the sysv ipc object LSM data
+ * security_ipc_getlsmblob() - Get the sysv ipc object LSM data
  * @ipcp: ipc permission structure
- * @prop: pointer to lsm information
+ * @blob: pointer to lsm information
  *
  * Get the lsm information associated with the ipc object.
  */
 
-void security_ipc_getlsmprop(struct kern_ipc_perm *ipcp, struct lsm_prop *prop)
+void security_ipc_getlsmblob(struct kern_ipc_perm *ipcp, struct lsmblob *blob)
 {
-	lsmprop_init(prop);
-	call_void_hook(ipc_getlsmprop, ipcp, prop);
+	lsmblob_init(blob);
+	call_void_hook(ipc_getlsmblob, ipcp, blob);
 }
 
 /**
