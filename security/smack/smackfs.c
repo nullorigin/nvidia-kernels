@@ -184,7 +184,7 @@ static void smk_netlabel_audit_set(struct netlbl_audit *nap)
 {
 	nap->loginuid = audit_get_loginuid(current);
 	nap->sessionid = audit_get_sessionid(current);
-	nap->prop.smack.skp = smk_of_current();
+	nap->blob.smack.skp = smk_of_current();
 }
 
 /*

@@ -97,7 +97,7 @@ struct calipso_doi;
 
 /* NetLabel audit information */
 struct netlbl_audit {
-	struct lsm_prop prop;
+	struct lsmblob blob;
 	kuid_t loginuid;
 	unsigned int sessionid;
 };
