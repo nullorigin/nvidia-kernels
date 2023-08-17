@@ -168,9 +168,9 @@ struct lsmblob_scaffold {
  * it is useful for.
  */
 struct lsmcontext {
-	char	*context;	/* Provided by the module */
-	u32	len;
-	int	id;		/* Identifies the module */
+  char *context; /* Provided by the module */
+  u32 len;
+  int id; /* Identifies the module */
 };
 
 /**
@@ -185,11 +185,10 @@ struct lsmcontext {
  * lsmcontext integration is complete.
  */
 static inline void lsmcontext_init(struct lsmcontext *cp, char *context,
-				   u32 size, int id)
-{
-	cp->id = id;
-	cp->context = context;
-	cp->len = size;
+                                   u32 size, int id) {
+  cp->id = id;
+  cp->context = context;
+  cp->len = size;
 }
 
 /*
@@ -498,11 +497,12 @@ int security_inode_removexattr(struct mnt_idmap *idmap, struct dentry *dentry,
 void security_inode_post_removexattr(struct dentry *dentry, const char *name);
 int security_inode_need_killpriv(struct dentry *dentry);
 int security_inode_killpriv(struct mnt_idmap *idmap, struct dentry *dentry);
-int security_inode_getsecurity(struct mnt_idmap *idmap,
-			       struct inode *inode, const char *name,
-			       void **buffer, bool alloc);
-int security_inode_setsecurity(struct inode *inode, const char *name, const void *value, size_t size, int flags);
-int security_inode_listsecurity(struct inode *inode, char *buffer, size_t buffer_size);
+int security_inode_getsecurity(struct mnt_idmap *idmap, struct inode *inode,
+                               const char *name, void **buffer, bool alloc);
+int security_inode_setsecurity(struct inode *inode, const char *name,
+                               const void *value, size_t size, int flags);
+int security_inode_listsecurity(struct inode *inode, char *buffer,
+                                size_t buffer_size);
 void security_inode_getlsmblob(struct inode *inode, struct lsmblob *blob);
 int security_inode_copy_up(struct dentry *src, struct cred **new);
 int security_inode_copy_up_xattr(struct dentry *src, const char *name);
@@ -612,8 +612,7 @@ int security_setprocattr(int lsmid, const char *name, void *value, size_t size);
 int security_netlink_send(struct sock *sk, struct sk_buff *skb);
 int security_ismaclabel(const char *name);
 int security_secid_to_secctx(u32 secid, struct lsmcontext *cp);
-int security_lsmblob_to_secctx(struct lsmblob *blob, char **secdata,
-                               u32 *seclen);
+int security_lsmblob_to_secctx(struct lsmblob *blob, struct lsmcontext *cp);
 int security_secctx_to_secid(const char *secdata, u32 seclen, u32 *secid);
 void security_release_secctx(struct lsmcontext *cp);
 void security_inode_invalidate_secctx(struct inode *inode);
@@ -1018,9 +1017,8 @@ static inline int security_inode_listsecurity(struct inode *inode, char *buffer,
 }
 
 static inline void security_inode_getlsmblob(struct inode *inode,
-					     struct lsmblob *blob)
-{
-	lsmblob_init(blob);
+                                             struct lsmblob *blob) {
+  lsmblob_init(blob);
 }
 
 static inline int security_inode_copy_up(struct dentry *src,
@@ -1128,15 +1126,13 @@ static inline int security_prepare_creds(struct cred *new,
 static inline void security_transfer_creds(struct cred *new,
                                            const struct cred *old) {}
 
-static inline void security_cred_getsecid(const struct cred *c, u32 *secid)
-{
-	*secid = 0;
+static inline void security_cred_getsecid(const struct cred *c, u32 *secid) {
+  *secid = 0;
 }
 
 static inline void security_cred_getlsmblob(const struct cred *c,
-					    struct lsmblob *blob)
-{
-	*secid = 0;
+                                            struct lsmblob *blob) {
+  *secid = 0;
 }
 
 static inline void security_cred_getlsmprop(const struct cred *c,
@@ -1199,15 +1195,13 @@ static inline int security_task_getpgid(struct task_struct *p) { return 0; }
 
 static inline int security_task_getsid(struct task_struct *p) { return 0; }
 
-static inline void security_current_getlsmblob_subj(struct lsmblob *blob)
-{
-	lsmblob_init(blob);
+static inline void security_current_getlsmblob_subj(struct lsmblob *blob) {
+  lsmblob_init(blob);
 }
 
 static inline void security_task_getlsmblob_obj(struct task_struct *p,
-						struct lsmblob *blob)
-{
-	lsmblob_init(blob);
+                                                struct lsmblob *blob) {
+  lsmblob_init(blob);
 }
 
 static inline int security_task_setnice(struct task_struct *p, int nice) {
@@ -1369,13 +1363,12 @@ static inline int security_netlink_send(struct sock *sk, struct sk_buff *skb) {
 
 static inline int security_ismaclabel(const char *name) { return 0; }
 
-static inline int security_secid_to_secctx(u32 secid, struct lsmcontext *cp)
-{
-	return -EOPNOTSUPP;
+static inline int security_secid_to_secctx(u32 secid, struct lsmcontext *cp) {
+  return -EOPNOTSUPP;
 }
 
 static inline int security_lsmblob_to_secctx(struct lsmblob *blob,
-                                             char **secdata, u32 *seclen) {
+                                             struct lsmcontext *cp) {
   return -EOPNOTSUPP;
 }
 
@@ -1384,9 +1377,7 @@ static inline int security_secctx_to_secid(const char *secdata, u32 seclen,
   return -EOPNOTSUPP;
 }
 
-static inline void security_release_secctx(struct lsmcontext *cp)
-{
-}
+static inline void security_release_secctx(struct lsmcontext *cp) {}
 
 static inline void security_inode_invalidate_secctx(struct inode *inode) {}
 
