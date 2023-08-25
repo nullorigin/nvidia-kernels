@@ -723,7 +723,7 @@ create_learning_profile:
 
 audit:
 	aa_audit_file(subj_cred, profile, &perms, OP_EXEC, MAY_EXEC, name, target, new,
-		      cond->uid, info, error, false);
+		      cond->uid, info, error, true);
 	if (!new || nonewprivs) {
 		aa_put_label(new);
 		return ERR_PTR(error);
