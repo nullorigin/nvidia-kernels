@@ -302,14 +302,16 @@ static inline const char *kernel_load_data_id_str(enum kernel_load_data_id id)
 }
 
 /**
- * lsmprop_init - initialize a lsm_prop structure
- * @prop: Pointer to the data to initialize
+ * lsmblob_is_set - report if there is a value in the lsmblob
+ * @blob: Pointer to the exported LSM data
  *
- * Set all secid for all modules to the specified value.
+ * Returns true if there is a value set, false otherwise
  */
-static inline void lsmprop_init(struct lsm_prop *prop)
+static inline bool lsmblob_is_set(struct lsmblob *blob)
 {
-	memset(prop, 0, sizeof(*prop));
+	const struct lsmblob empty = {};
+
+	return !!memcmp(blob, &empty, sizeof(*blob));
 }
 
 #ifdef CONFIG_SECURITY

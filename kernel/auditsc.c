@@ -725,9 +725,7 @@ static int audit_filter_rules(struct task_struct *tsk,
 				/* Find ipc objects that match */
 				if (!ctx || ctx->type != AUDIT_IPC)
 					break;
-				/* stacking scaffolding */
-				blob.scaffold.secid = ctx->ipc.osid;
-				if (security_audit_rule_match(&blob,
+				if (security_audit_rule_match(&ctx->ipc.oblob,
 							      f->type, f->op,
 							      f->lsm_rule))
 					++result;
@@ -1400,11 +1398,12 @@ static void show_special(struct audit_context *context, int *call_panic)
 				 from_kuid(&init_user_ns, context->ipc.uid),
 				 from_kgid(&init_user_ns, context->ipc.gid),
 				 context->ipc.mode);
-		if (lsmprop_is_set(&context->ipc.oprop)) {
-			struct lsm_context lsmctx;
+		if (lsmblob_is_set(&context->ipc.oblob)) {
+			char *ctx = NULL;
+			u32 len;
 
-			if (security_lsmprop_to_secctx(&context->ipc.oprop,
-						       &lsmctx) < 0) {
+			if (security_lsmblob_to_secctx(&context->ipc.oblob,
+						       &ctx, &len)) {
 				*call_panic = 1;
 			} else {
 				audit_log_format(ab, " obj=%s", lsmctx.context);
@@ -2637,7 +2636,8 @@ void __audit_ipc_obj(struct kern_ipc_perm *ipcp)
 	context->ipc.gid = ipcp->gid;
 	context->ipc.mode = ipcp->mode;
 	context->ipc.has_perm = 0;
-	security_ipc_getlsmprop(ipcp, &context->ipc.oprop);
+	/* stacking scaffolding */
+	security_ipc_getsecid(ipcp, &context->ipc.oblob.scaffold.secid);
 	context->type = AUDIT_IPC;
 }
 
