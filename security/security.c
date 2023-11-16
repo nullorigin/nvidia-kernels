@@ -1411,18 +1411,16 @@ int security_fs_context_dup(struct fs_context *fc, struct fs_context *src_fc)
 int security_fs_context_parse_param(struct fs_context *fc,
 				    struct fs_parameter *param)
 {
-	struct lsm_static_call *scall;
-	int trc;
-	int rc = -ENOPARAM;
+	struct security_hook_list *hp;
+	int rc;
 
-	lsm_for_each_hook(scall, fs_context_parse_param) {
-		trc = scall->hl->hook.fs_context_parse_param(fc, param);
-		if (trc == 0)
-			rc = 0;
-		else if (trc != -ENOPARAM)
-			return trc;
+	hlist_for_each_entry(hp, &security_hook_heads.fs_context_parse_param,
+			     list) {
+		rc = hp->hook.fs_context_parse_param(fc, param);
+		if (rc != -ENOPARAM)
+			return rc;
 	}
-	return rc;
+	return -ENOPARAM;
 }
 
 /**
@@ -1496,6 +1494,7 @@ void security_free_mnt_opts(void **mnt_opts)
 	if (!*mnt_opts)
 		return;
 	call_void_hook(sb_free_mnt_opts, *mnt_opts);
+	kfree(*mnt_opts);
 	*mnt_opts = NULL;
 }
 EXPORT_SYMBOL(security_free_mnt_opts);
