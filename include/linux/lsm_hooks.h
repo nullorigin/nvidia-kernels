@@ -186,21 +186,17 @@ extern struct lsm_static_calls_table static_calls_table __ro_after_init;
 extern struct lsm_info __start_lsm_info[], __end_lsm_info[];
 extern struct lsm_info __start_early_lsm_info[], __end_early_lsm_info[];
 
-/**
- * lsm_get_xattr_slot - Return the next available slot and increment the index
- * @xattrs: array storing LSM-provided xattrs
- * @xattr_count: number of already stored xattrs (updated)
- *
- * Retrieve the first available slot in the @xattrs array to fill with an xattr,
- * and increment @xattr_count.
- *
- * Return: The slot to fill in @xattrs if non-NULL, NULL otherwise.
- */
-static inline struct xattr *lsm_get_xattr_slot(struct xattr *xattrs,
-                                               int *xattr_count) {
-  if (unlikely(!xattrs))
-    return NULL;
-  return &xattrs[(*xattr_count)++];
-}
+#define DEFINE_LSM(lsm)							\
+	static struct lsm_info __lsm_##lsm				\
+		__used __section(".lsm_info.init")			\
+		__aligned(sizeof(unsigned long))
+
+#define DEFINE_EARLY_LSM(lsm)						\
+	static struct lsm_info __early_lsm_##lsm			\
+		__used __section(".early_lsm_info.init")		\
+		__aligned(sizeof(unsigned long))
+
+extern int lsm_inode_alloc(struct inode *inode);
+extern void *lsm_mnt_opts_alloc(gfp_t priority);
 
 #endif /* ! __LINUX_LSM_HOOKS_H */
