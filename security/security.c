@@ -4383,7 +4383,7 @@ EXPORT_SYMBOL(security_secctx_to_secid);
  *
  * Release the security context.
  */
-void security_release_secctx(struct lsm_context *cp)
+void security_release_secctx(struct lsmcontext *cp)
 {
 	call_void_hook(release_secctx, cp);
 	memset(cp, 0, sizeof(*cp));

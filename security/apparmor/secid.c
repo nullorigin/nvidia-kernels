@@ -142,13 +142,16 @@ int apparmor_secctx_to_secid(const char *secdata, u32 seclen, u32 *secid)
 	return 0;
 }
 
-void apparmor_release_secctx(struct lsm_context *cp)
+void apparmor_release_secctx(struct lsmcontext *cp)
 {
-	if (cp->id == LSM_ID_APPARMOR) {
-		kfree(cp->context);
-		cp->context = NULL;
-		cp->id = LSM_ID_UNDEF;
-	}
+	/*
+	 * stacking scaffolding:
+	 * When it is possible for more than one LSM to provide a
+	 * release hook, do this check:
+	 * if (cp->id == LSM_ID_APPARMOR || cp->id == LSM_ID_UNDEF)
+	 */
+
+	kfree(cp->context);
 }
 
 /**

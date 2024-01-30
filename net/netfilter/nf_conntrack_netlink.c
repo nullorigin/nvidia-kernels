@@ -357,11 +357,11 @@ nla_put_failure:
 static int ctnetlink_dump_secctx(struct sk_buff *skb, const struct nf_conn *ct)
 {
 	struct nlattr *nest_secctx;
-	struct lsm_context ctx;
+	struct lsmcontext ctx;
 	int ret;
 
-	ret = security_secid_to_secctx(ct->secmark, &ctx);
-	if (ret < 0)
+	ret = security_secid_to_secctx(ct->secmark, &ctx.context, &ctx.len);
+	if (ret)
 		return 0;
 
 	ret = -1;

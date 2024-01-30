@@ -6678,13 +6678,16 @@ static int selinux_secctx_to_secid(const char *secdata, u32 seclen, u32 *secid)
 				       secid, GFP_KERNEL);
 }
 
-static void selinux_release_secctx(struct lsm_context *cp)
+static void selinux_release_secctx(struct lsmcontext *cp)
 {
-	if (cp->id == LSM_ID_SELINUX) {
-		kfree(cp->context);
-		cp->context = NULL;
-		cp->id = LSM_ID_UNDEF;
-	}
+	/*
+	 * stacking scaffolding:
+	 * When it is possible for more than one LSM to provide a
+	 * release hook, do this check:
+	 * if (cp->id == LSM_ID_SELINUX || cp->id == LSM_ID_UNDEF)
+	 */
+
+	kfree(cp->context);
 }
 
 static void selinux_inode_invalidate_secctx(struct inode *inode)

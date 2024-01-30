@@ -105,13 +105,14 @@ static __inline__ int scm_send(struct socket *sock, struct msghdr *msg,
 #ifdef CONFIG_SECURITY_NETWORK
 static inline void scm_passec(struct socket *sock, struct msghdr *msg, struct scm_cookie *scm)
 {
-	struct lsm_context ctx;
+	struct lsmcontext ctx;
 	int err;
 
 	if (test_bit(SOCK_PASSSEC, &sock->flags)) {
-		err = security_secid_to_secctx(scm->secid, &ctx);
+		err = security_secid_to_secctx(scm->secid, &ctx.context,
+					       &ctx.len);
 
-		if (err >= 0) {
+		if (!err) {
 			put_cmsg(msg, SOL_SOCKET, SCM_SECURITY, ctx.len,
 				 ctx.context);
 			security_release_secctx(&ctx);
@@ -229,4 +230,3 @@ static inline int scm_recv_one_fd(struct file *f, int __user *ufd,
 }
 
 #endif /* __LINUX_NET_SCM_H */
-
