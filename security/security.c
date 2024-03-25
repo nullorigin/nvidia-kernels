@@ -32,7 +32,8 @@
 #include <net/flow.h>
 #include <net/sock.h>
 
-#define SECURITY_HOOK_ACTIVE_KEY(HOOK, IDX) security_hook_active_##HOOK##_##IDX
+/* How many LSMs were built into the kernel? */
+#define LSM_COUNT (__end_lsm_info - __start_lsm_info)
 
 /*
  * Identifier for the LSM static calls.
@@ -275,7 +276,6 @@ static void __init lsm_set_blob_sizes(struct lsm_blob_sizes *needed)
 	lsm_set_blob_size(&needed->lbs_ipc, &blob_sizes.lbs_ipc);
 	lsm_set_blob_size(&needed->lbs_key, &blob_sizes.lbs_key);
 	lsm_set_blob_size(&needed->lbs_msg_msg, &blob_sizes.lbs_msg_msg);
-	lsm_set_blob_size(&needed->lbs_perf_event, &blob_sizes.lbs_perf_event);
 	lsm_set_blob_size(&needed->lbs_sock, &blob_sizes.lbs_sock);
 	lsm_set_blob_size(&needed->lbs_superblock, &blob_sizes.lbs_superblock);
 	lsm_set_blob_size(&needed->lbs_task, &blob_sizes.lbs_task);
@@ -4832,15 +4832,23 @@ EXPORT_SYMBOL(security_socket_getpeersec_dgram);
 /**
  * lsm_sock_alloc - allocate a composite sock blob
  * @sock: the sock that needs a blob
- * @gfp: allocation mode
+ * @priority: allocation mode
  *
  * Allocate the sock blob for all the modules
  *
  * Returns 0, or -ENOMEM if memory can't be allocated.
  */
-static int lsm_sock_alloc(struct sock *sock, gfp_t gfp)
+static int lsm_sock_alloc(struct sock *sock, gfp_t priority)
 {
-	return lsm_blob_alloc(&sock->sk_security, blob_sizes.lbs_sock, gfp);
+	if (blob_sizes.lbs_sock == 0) {
+		sock->sk_security = NULL;
+		return 0;
+	}
+
+	sock->sk_security = kzalloc(blob_sizes.lbs_sock, priority);
+	if (sock->sk_security == NULL)
+		return -ENOMEM;
+	return 0;
 }
 
 /**

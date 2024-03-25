@@ -4600,8 +4600,12 @@ static int socket_sockcreate_sid(const struct task_security_struct *tsec,
 
 static bool sock_skip_has_perm(u32 sid)
 {
-	if (sid == SECINITSID_KERNEL)
-		return true;
+	struct sk_security_struct *sksec = selinux_sock(sk);
+	struct common_audit_data ad;
+	struct lsm_network_audit net;
+
+	if (sksec->sid == SECINITSID_KERNEL)
+		return 0;
 
 	/*
 	 * Before POLICYDB_CAP_USERSPACE_INITIAL_CONTEXT, sockets that
@@ -5635,7 +5639,7 @@ static int selinux_tun_dev_attach_queue(void *security)
 
 static int selinux_tun_dev_attach(struct sock *sk, void *security)
 {
-	struct tun_security_struct *tunsec = selinux_tun_dev(security);
+	struct tun_security_struct *tunsec = security;
 	struct sk_security_struct *sksec = selinux_sock(sk);
 
 	/* we don't currently perform any NetLabel based labeling here and it
@@ -7029,9 +7033,6 @@ struct lsm_blob_sizes selinux_blob_sizes __ro_after_init = {
 	.lbs_ipc = sizeof(struct ipc_security_struct),
 	.lbs_key = sizeof(struct key_security_struct),
 	.lbs_msg_msg = sizeof(struct msg_security_struct),
-#ifdef CONFIG_PERF_EVENTS
-	.lbs_perf_event = sizeof(struct perf_event_security_struct),
-#endif
 	.lbs_sock = sizeof(struct sk_security_struct),
 	.lbs_superblock = sizeof(struct superblock_security_struct),
 	.lbs_xattr_count = SELINUX_INODE_INIT_XATTRS,
