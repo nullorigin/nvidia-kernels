@@ -8,7 +8,7 @@
 
 struct smack_known;
 
-struct lsm_prop_smack {
+struct lsmblob_smack {
 #ifdef CONFIG_SECURITY_SMACK
 	struct smack_known *skp;
 #endif
