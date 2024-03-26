@@ -4038,9 +4038,11 @@ static void selinux_cred_getsecid(const struct cred *c, u32 *secid)
 	*secid = cred_sid(c);
 }
 
-static void selinux_cred_getlsmprop(const struct cred *c, struct lsm_prop *prop)
+static void selinux_cred_getlsmblob(const struct cred *c, struct lsmblob *blob)
 {
-	prop->selinux.secid = cred_sid(c);
+	blob->selinux.secid = cred_sid(c);
+	/* stacking scaffolding */
+	blob->scaffold.secid = blob->selinux.secid;
 }
 
 /*
@@ -7249,7 +7251,7 @@ static struct security_hook_list selinux_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(cred_prepare, selinux_cred_prepare),
 	LSM_HOOK_INIT(cred_transfer, selinux_cred_transfer),
 	LSM_HOOK_INIT(cred_getsecid, selinux_cred_getsecid),
-	LSM_HOOK_INIT(cred_getlsmprop, selinux_cred_getlsmprop),
+	LSM_HOOK_INIT(cred_getlsmblob, selinux_cred_getlsmblob),
 	LSM_HOOK_INIT(kernel_act_as, selinux_kernel_act_as),
 	LSM_HOOK_INIT(kernel_create_files_as, selinux_kernel_create_files_as),
 	LSM_HOOK_INIT(kernel_module_request, selinux_kernel_module_request),

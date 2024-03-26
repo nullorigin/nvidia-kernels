@@ -3281,19 +3281,19 @@ void security_cred_getsecid(const struct cred *c, u32 *secid)
 EXPORT_SYMBOL(security_cred_getsecid);
 
 /**
- * security_cred_getlsmprop() - Get the LSM data from a set of credentials
+ * security_cred_getlsmblob() - Get the LSM data from a set of credentials
  * @c: credentials
- * @prop: destination for the LSM data
+ * @blob: destination for the LSM data
  *
  * Retrieve the security data of the cred structure @c.  In case of
- * failure, @prop will be cleared.
+ * failure, @blob will be cleared.
  */
-void security_cred_getlsmprop(const struct cred *c, struct lsm_prop *prop)
+void security_cred_getlsmblob(const struct cred *c, struct lsmblob *blob)
 {
-	lsmprop_init(prop);
-	call_void_hook(cred_getlsmprop, c, prop);
+	lsmblob_init(blob);
+	call_void_hook(cred_getlsmblob, c, blob);
 }
-EXPORT_SYMBOL(security_cred_getlsmprop);
+EXPORT_SYMBOL(security_cred_getlsmblob);
 
 /**
  * security_kernel_act_as() - Set the kernel credentials to act as secid
