@@ -40,16 +40,16 @@ int selinux_audit_rule_init(u32 field, u32 op, char *rulestr, void **rule,
 void selinux_audit_rule_free(void *rule);
 
 /**
- * selinux_audit_rule_match - determine if a context ID matches a rule.
- * @prop: includes the context ID to check
- * @field: the field this rule refers to
- * @op: the operator the rule uses
- * @rule: pointer to the audit rule to check against
+ *	selinux_audit_rule_match - determine if a context ID matches a rule.
+ *	@blob: includes the context ID to check
+ *	@field: the field this rule refers to
+ *	@op: the operator the rule uses
+ *	@rule: pointer to the audit rule to check against
  *
  * Returns 1 if the context id matches the rule, 0 if it does not, and
  * -errno on failure.
  */
-int selinux_audit_rule_match(struct lsm_prop *prop, u32 field, u32 op,
+int selinux_audit_rule_match(struct lsmblob *blob, u32 field, u32 op,
 			     void *rule);
 
 /**

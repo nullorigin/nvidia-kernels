@@ -1346,7 +1346,7 @@ int audit_filter(int msgtype, unsigned int listtype)
 
 		for (i = 0; i < e->rule.field_count; i++) {
 			struct audit_field *f = &e->rule.fields[i];
-			struct lsm_prop prop = { };
+			struct lsmblob blob = { };
 			pid_t pid;
 
 			switch (f->type) {
@@ -1377,9 +1377,11 @@ int audit_filter(int msgtype, unsigned int listtype)
 			case AUDIT_SUBJ_SEN:
 			case AUDIT_SUBJ_CLR:
 				if (f->lsm_rule) {
-					security_current_getlsmprop_subj(&prop);
+					/* stacking scaffolding */
+					security_current_getsecid_subj(
+							&blob.scaffold.secid);
 					result = security_audit_rule_match(
-						   &prop, f->type, f->op,
+						   &blob, f->type, f->op,
 						   f->lsm_rule);
 				}
 				break;

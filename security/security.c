@@ -5615,7 +5615,7 @@ void security_audit_rule_free(void *lsmrule)
 
 /**
  * security_audit_rule_match() - Check if a label matches an audit rule
- * @prop: security label
+ * @lsmblob: security label
  * @field: LSM audit field
  * @op: matching operator
  * @lsmrule: audit rule
@@ -5626,10 +5626,10 @@ void security_audit_rule_free(void *lsmrule)
  * Return: Returns 1 if secid matches the rule, 0 if it does not, -ERRNO on
  *         failure.
  */
-int security_audit_rule_match(struct lsm_prop *prop, u32 field, u32 op,
+int security_audit_rule_match(struct lsmblob *blob, u32 field, u32 op,
 			      void *lsmrule)
 {
-	return call_int_hook(audit_rule_match, prop, field, op, lsmrule);
+	return call_int_hook(audit_rule_match, blob, field, op, lsmrule);
 }
 #endif /* CONFIG_AUDIT */
 

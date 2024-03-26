@@ -3661,7 +3661,8 @@ int selinux_audit_rule_known(struct audit_krule *rule)
 	return 0;
 }
 
-int selinux_audit_rule_match(struct lsm_prop *prop, u32 field, u32 op, void *vrule)
+int selinux_audit_rule_match(struct lsmblob *blob, u32 field, u32 op,
+			     void *vrule)
 {
 	struct selinux_state *state = &selinux_state;
 	struct selinux_policy *policy;
@@ -3687,10 +3688,14 @@ int selinux_audit_rule_match(struct lsm_prop *prop, u32 field, u32 op, void *vru
 		goto out;
 	}
 
-	ctxt = sidtab_search(policy->sidtab, prop->selinux.secid);
+	/* stacking scaffolding */
+	if (!blob->selinux.secid && blob->scaffold.secid)
+		blob->selinux.secid = blob->scaffold.secid;
+
+	ctxt = sidtab_search(policy->sidtab, blob->selinux.secid);
 	if (unlikely(!ctxt)) {
 		WARN_ONCE(1, "selinux_audit_rule_match: unrecognized SID %d\n",
-			  prop->selinux.secid);
+			  blob->selinux.secid);
 		match = -ENOENT;
 		goto out;
 	}

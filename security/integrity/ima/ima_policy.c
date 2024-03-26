@@ -636,7 +636,7 @@ static bool ima_match_rules(struct ima_rule_entry *rule,
 		return false;
 	for (i = 0; i < MAX_LSM_RULES; i++) {
 		int rc = 0;
-		struct lsm_prop inode_prop = { };
+		struct lsmblob blob = { };
 
 		if (!lsm_rule->lsm[i].rule) {
 			if (!lsm_rule->lsm[i].args_p)
@@ -650,16 +650,18 @@ retry:
 		case LSM_OBJ_USER:
 		case LSM_OBJ_ROLE:
 		case LSM_OBJ_TYPE:
-			security_inode_getlsmprop(inode, &inode_prop);
-			rc = ima_filter_rule_match(&inode_prop,
-						   lsm_rule->lsm[i].type,
+			/* stacking scaffolding */
+			security_inode_getsecid(inode, &blob.scaffold.secid);
+			rc = ima_filter_rule_match(&blob, lsm_rule->lsm[i].type,
 						   Audit_equal,
 						   lsm_rule->lsm[i].rule);
 			break;
 		case LSM_SUBJ_USER:
 		case LSM_SUBJ_ROLE:
 		case LSM_SUBJ_TYPE:
-			rc = ima_filter_rule_match(prop, lsm_rule->lsm[i].type,
+			/* stacking scaffolding */
+			blob.scaffold.secid = secid;
+			rc = ima_filter_rule_match(&blob, lsm_rule->lsm[i].type,
 						   Audit_equal,
 						   lsm_rule->lsm[i].rule);
 			break;
