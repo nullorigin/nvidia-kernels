@@ -6645,28 +6645,21 @@ static int selinux_ismaclabel(const char *name)
 	return (strcmp(name, XATTR_SELINUX_SUFFIX) == 0);
 }
 
-static int selinux_secid_to_secctx(u32 secid, struct lsm_context *cp)
+static int selinux_secid_to_secctx(u32 secid, char **secdata, u32 *seclen)
 {
-	u32 seclen;
-	int ret;
-
-	if (cp) {
-		cp->id = LSM_ID_SELINUX;
-		ret = security_sid_to_context(secid, &cp->context, &cp->len);
-		if (ret < 0)
-			return ret;
-		return cp->len;
-	}
-	ret = security_sid_to_context(secid, NULL, &seclen);
-	if (ret < 0)
-		return ret;
-	return seclen;
+	return security_sid_to_context(secid, secdata, seclen);
 }
 
-static int selinux_lsmprop_to_secctx(struct lsm_prop *prop,
-				     struct lsm_context *cp)
+static int selinux_lsmblob_to_secctx(struct lsmblob *blob, char **secdata,
+				     u32 *seclen)
 {
-	return selinux_secid_to_secctx(prop->selinux.secid, cp);
+	u32 secid = blob->selinux.secid;
+
+	/* stacking scaffolding */
+	if (!secid)
+		secid = blob->scaffold.secid;
+
+	return security_sid_to_context(secid, secdata, seclen);
 }
 
 static int selinux_secctx_to_secid(const char *secdata, u32 seclen, u32 *secid)
@@ -7415,7 +7408,7 @@ static struct security_hook_list selinux_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(inode_alloc_security, selinux_inode_alloc_security),
 	LSM_HOOK_INIT(sem_alloc_security, selinux_sem_alloc_security),
 	LSM_HOOK_INIT(secid_to_secctx, selinux_secid_to_secctx),
-	LSM_HOOK_INIT(lsmprop_to_secctx, selinux_lsmprop_to_secctx),
+	LSM_HOOK_INIT(lsmblob_to_secctx, selinux_lsmblob_to_secctx),
 	LSM_HOOK_INIT(inode_getsecctx, selinux_inode_getsecctx),
 	LSM_HOOK_INIT(sk_alloc_security, selinux_sk_alloc_security),
 	LSM_HOOK_INIT(tun_dev_alloc_security, selinux_tun_dev_alloc_security),

@@ -571,8 +571,9 @@ int security_getprocattr(struct task_struct *p, int lsmid, const char *name,
 int security_setprocattr(int lsmid, const char *name, void *value, size_t size);
 int security_netlink_send(struct sock *sk, struct sk_buff *skb);
 int security_ismaclabel(const char *name);
-int security_secid_to_secctx(u32 secid, struct lsm_context *cp);
-int security_lsmprop_to_secctx(struct lsm_prop *prop, struct lsm_context *cp);
+int security_secid_to_secctx(u32 secid, char **secdata, u32 *seclen);
+int security_lsmblob_to_secctx(struct lsmblob *blob, char **secdata,
+			       u32 *seclen);
 int security_secctx_to_secid(const char *secdata, u32 seclen, u32 *secid);
 void security_release_secctx(struct lsm_context *cp);
 void security_inode_invalidate_secctx(struct inode *inode);
@@ -1544,13 +1545,14 @@ static inline int security_ismaclabel(const char *name)
 	return 0;
 }
 
-static inline int security_secid_to_secctx(u32 secid, struct lsm_context *cp)
+static inline int security_secid_to_secctx(u32 secid, char **secdata,
+					   u32 *seclen)
 {
 	return -EOPNOTSUPP;
 }
 
-static inline int security_lsmprop_to_secctx(struct lsm_prop *prop,
-					     struct lsm_context *cp)
+static inline int security_lsmblob_to_secctx(struct lsmblob *blob,
+					     char **secdata, u32 *seclen)
 {
 	return -EOPNOTSUPP;
 }
