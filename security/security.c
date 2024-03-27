@@ -4324,7 +4324,7 @@ EXPORT_SYMBOL(security_ismaclabel);
  *
  * Return: Return length of data on success, error on failure.
  */
-int security_secid_to_secctx(u32 secid, struct lsm_context *cp)
+int security_secid_to_secctx(u32 secid, struct lsmcontext *cp)
 {
 	return call_int_hook(secid_to_secctx, secid, cp);
 }
@@ -4350,7 +4350,7 @@ int security_lsmblob_to_secctx(struct lsmblob *blob, char **secdata,
 	struct security_hook_list *hp;
 	int rc;
 
-	hlist_for_each_entry(hp, &security_hook_heads.secid_to_secctx, list) {
+	hlist_for_each_entry(hp, &security_hook_heads.lsmblob_to_secctx, list) {
 		rc = hp->hook.lsmblob_to_secctx(blob, secdata, seclen);
 		if (rc != LSM_RET_DEFAULT(secid_to_secctx))
 			return rc;

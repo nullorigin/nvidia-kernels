@@ -47,8 +47,7 @@ struct aa_label *aa_secid_to_label(u32 secid)
 	return xa_load(&aa_secids, secid);
 }
 
-static int apparmor_label_to_secctx(struct aa_label *label,
-				    struct lsm_context *cp)
+int apparmor_secid_to_secctx(u32 secid, struct lsmcontext *cp)
 {
 	/* TODO: cache secctx and ref count so we don't have to recreate */
 	int flags = FLAG_VIEW_SUBNS | FLAG_HIDDEN_UNCONFINED | FLAG_ABS_ROOT;
@@ -75,22 +74,6 @@ static int apparmor_label_to_secctx(struct aa_label *label,
 	}
 
 	return len;
-}
-
-int apparmor_secid_to_secctx(u32 secid, struct lsm_context *cp)
-{
-	struct aa_label *label = aa_secid_to_label(secid);
-
-	return apparmor_label_to_secctx(label, cp);
-}
-
-int apparmor_lsmprop_to_secctx(struct lsm_prop *prop, struct lsm_context *cp)
-{
-	struct aa_label *label;
-
-	label = prop->apparmor.label;
-
-	return apparmor_label_to_secctx(label, cp);
 }
 
 int apparmor_lsmblob_to_secctx(struct lsmblob *blob, char **secdata,
