@@ -468,7 +468,7 @@ static int get_security_context(struct dentry *entry, umode_t mode,
 {
 	struct fuse_secctx *fctx;
 	struct fuse_secctx_header *header;
-	struct lsm_context lsmctx = { };
+	struct lsmcontext lsmctx = { };
 	void *ptr;
 	u32 total_len = sizeof(*header);
 	int err, nr_ctx = 0;

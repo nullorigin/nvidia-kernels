@@ -434,7 +434,7 @@ int security_move_mount(const struct path *from_path,
 int security_dentry_init_security(struct dentry *dentry, int mode,
                                   const struct qstr *name,
                                   const char **xattr_name,
-                                  struct lsm_context *lsmcxt);
+                                  struct lsmcontext *lsmcxt);
 int security_dentry_create_files_as(struct dentry *dentry, int mode,
                                     struct qstr *name, const struct cred *old,
                                     struct cred *new);
@@ -837,7 +837,7 @@ static inline void security_inode_free(struct inode *inode) {}
 static inline int security_dentry_init_security(struct dentry *dentry, int mode,
                                                 const struct qstr *name,
                                                 const char **xattr_name,
-                                                struct lsm_context *lsmcxt) {
+                                                struct lsmcontext *lsmcxt) {
   return -EOPNOTSUPP;
 }
 

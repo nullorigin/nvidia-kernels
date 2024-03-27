@@ -2870,7 +2870,7 @@ static void selinux_inode_free_security(struct inode *inode)
 static int selinux_dentry_init_security(struct dentry *dentry, int mode,
 					const struct qstr *name,
 					const char **xattr_name,
-					struct lsm_context *cp)
+					struct lsmcontext *cp)
 {
 	u32 newsid;
 	int rc;
@@ -2886,7 +2886,8 @@ static int selinux_dentry_init_security(struct dentry *dentry, int mode,
 		*xattr_name = XATTR_NAME_SELINUX;
 
 	cp->id = LSM_ID_SELINUX;
-	return security_sid_to_context(newsid, &cp->context, &cp->len);
+	return security_sid_to_context(newsid, (char **)cp->context,
+				       &cp->len);
 }
 
 static int selinux_dentry_create_files_as(struct dentry *dentry, int mode,
