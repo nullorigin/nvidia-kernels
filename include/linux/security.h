@@ -156,11 +156,6 @@ enum lockdown_reason {
   LOCKDOWN_CONFIDENTIALITY_MAX,
 };
 
-/* stacking scaffolding */
-struct lsmblob_scaffold {
-  u32 secid;
-};
-
 /*
  * A "security context" is the text representation of
  * the information used by LSMs.
@@ -181,7 +176,6 @@ struct lsmblob {
   struct lsmblob_smack smack;
   struct lsmblob_apparmor apparmor;
   struct lsmblob_bpf bpf;
-  struct lsmblob_scaffold scaffold;
 };
 
 extern const char *const lockdown_reasons[LOCKDOWN_CONFIDENTIALITY_MAX + 1];
@@ -596,7 +590,7 @@ int security_netlink_send(struct sock *sk, struct sk_buff *skb);
 int security_ismaclabel(const char *name);
 int security_secid_to_secctx(u32 secid, struct lsmcontext *cp);
 int security_lsmblob_to_secctx(struct lsmblob *blob, struct lsmcontext *cp,
-			       int lsmid);
+                               int lsmid);
 int security_secctx_to_secid(const char *secdata, u32 seclen, u32 *secid);
 void security_release_secctx(struct lsmcontext *cp);
 void security_inode_invalidate_secctx(struct inode *inode);
@@ -1352,9 +1346,8 @@ static inline int security_secid_to_secctx(u32 secid, struct lsmcontext *cp) {
 }
 
 static inline int security_lsmblob_to_secctx(struct lsmblob *blob,
-					     struct lsmcontext *cp, int lsmid)
-{
-	return -EOPNOTSUPP;
+                                             struct lsmcontext *cp, int lsmid) {
+  return -EOPNOTSUPP;
 }
 
 static inline int security_secctx_to_secid(const char *secdata, u32 seclen,
