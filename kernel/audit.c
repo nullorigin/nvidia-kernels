@@ -2180,16 +2180,17 @@ void audit_log_key(struct audit_buffer *ab, char *key)
 
 int audit_log_task_context(struct audit_buffer *ab)
 {
-	struct lsm_prop prop;
-	struct lsm_context ctx;
+	struct lsmblob blob;
+	char *ctx = NULL;
+	unsigned len;
 	int error;
 
-	security_current_getlsmprop_subj(&prop);
-	if (!lsmprop_is_set(&prop))
+	security_current_getlsmblob_subj(&blob);
+	if (!lsmblob_is_set(&blob))
 		return 0;
 
-	error = security_lsmprop_to_secctx(&prop, &ctx);
-	if (error < 0) {
+	error = security_lsmblob_to_secctx(&blob, &ctx, &len);
+	if (error) {
 		if (error != -EINVAL)
 			goto error_path;
 		return 0;
@@ -2405,8 +2406,7 @@ int audit_signal_info(int sig, struct task_struct *t)
 			audit_sig_uid = auid;
 		else
 			audit_sig_uid = uid;
-		/* stacking scaffolding */
-		security_current_getsecid_subj(&audit_sig_lsm.scaffold.secid);
+		security_current_getlsmblob_subj(&audit_sig_lsm);
 	}
 
 	return audit_signal_info_syscall(t);

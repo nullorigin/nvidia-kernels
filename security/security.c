@@ -3514,33 +3514,33 @@ int security_task_getsid(struct task_struct *p)
 }
 
 /**
- * security_current_getlsmprop_subj() - Current task's subjective LSM data
- * @prop: lsm specific information
+ * security_current_getlsmblob_subj() - Current task's subjective LSM data
+ * @blob: lsm specific information
  *
  * Retrieve the subjective security identifier of the current task and return
- * it in @prop.
+ * it in @blob.
  */
-void security_current_getlsmprop_subj(struct lsm_prop *prop)
+void security_current_getlsmblob_subj(struct lsmblob *blob)
 {
-	lsmprop_init(prop);
-	call_void_hook(current_getlsmprop_subj, prop);
+	lsmblob_init(blob);
+	call_void_hook(current_getlsmblob_subj, blob);
 }
-EXPORT_SYMBOL(security_current_getlsmprop_subj);
+EXPORT_SYMBOL(security_current_getlsmblob_subj);
 
 /**
- * security_task_getlsmprop_obj() - Get a task's objective LSM data
+ * security_task_getlsmblob_obj() - Get a task's objective LSM data
  * @p: target task
- * @prop: lsm specific information
+ * @blob: lsm specific information
  *
  * Retrieve the objective security identifier of the task_struct in @p and
- * return it in @prop.
+ * return it in @blob.
  */
-void security_task_getlsmprop_obj(struct task_struct *p, struct lsm_prop *prop)
+void security_task_getlsmblob_obj(struct task_struct *p, struct lsmblob *blob)
 {
-	lsmprop_init(prop);
-	call_void_hook(task_getlsmprop_obj, p, prop);
+	lsmblob_init(blob);
+	call_void_hook(task_getlsmblob_obj, p, blob);
 }
-EXPORT_SYMBOL(security_task_getlsmprop_obj);
+EXPORT_SYMBOL(security_task_getlsmblob_obj);
 
 /**
  * security_task_setnice() - Check if setting a task's nice value is allowed

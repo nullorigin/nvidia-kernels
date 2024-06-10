@@ -982,20 +982,24 @@ static void apparmor_bprm_committed_creds(const struct linux_binprm *bprm)
 	return;
 }
 
-static void apparmor_current_getlsmprop_subj(struct lsm_prop *prop)
+static void apparmor_current_getlsmblob_subj(struct lsmblob *blob)
 {
 	struct aa_label *label = __begin_current_label_crit_section();
 
-	prop->apparmor.label = label;
+	blob->apparmor.label = label;
+	/* stacking scaffolding */
+	blob->scaffold.secid = label->secid;
 	__end_current_label_crit_section(label);
 }
 
-static void apparmor_task_getlsmprop_obj(struct task_struct *p,
-					  struct lsm_prop *prop)
+static void apparmor_task_getlsmblob_obj(struct task_struct *p,
+					  struct lsmblob *blob)
 {
 	struct aa_label *label = aa_get_task_label(p);
 
-	prop->apparmor.label = label;
+	blob->apparmor.label = label;
+	/* stacking scaffolding */
+	blob->scaffold.secid = label->secid;
 	aa_put_label(label);
 }
 
@@ -1506,9 +1510,9 @@ static struct security_hook_list apparmor_hooks[] __ro_after_init = {
 
 	LSM_HOOK_INIT(task_free, apparmor_task_free),
 	LSM_HOOK_INIT(task_alloc, apparmor_task_alloc),
-	LSM_HOOK_INIT(current_getlsmprop_subj,
-		      apparmor_current_getlsmprop_subj),
-	LSM_HOOK_INIT(task_getlsmprop_obj, apparmor_task_getlsmprop_obj),
+	LSM_HOOK_INIT(current_getlsmblob_subj,
+		      apparmor_current_getlsmblob_subj),
+	LSM_HOOK_INIT(task_getlsmblob_obj, apparmor_task_getlsmblob_obj),
 	LSM_HOOK_INIT(task_setrlimit, apparmor_task_setrlimit),
 	LSM_HOOK_INIT(task_kill, apparmor_task_kill),
 	LSM_HOOK_INIT(userns_create, apparmor_userns_create),

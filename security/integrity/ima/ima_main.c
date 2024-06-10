@@ -206,7 +206,7 @@ static void ima_file_free(struct file *file)
 }
 
 static int process_measurement(struct file *file, const struct cred *cred,
-			       struct lsm_prop *prop, char *buf, loff_t size,
+			       struct lsmblob *blob, char *buf, loff_t size,
 			       int mask, enum ima_hooks func)
 {
 	struct inode *real_inode, *inode = file_inode(file);
@@ -232,7 +232,7 @@ static int process_measurement(struct file *file, const struct cred *cred,
 	 * bitmask based on the appraise/audit/measurement policy.
 	 * Included is the appraise submask.
 	 */
-	action = ima_get_action(file_mnt_idmap(file), inode, cred, prop,
+	action = ima_get_action(file_mnt_idmap(file), inode, cred, blob,
 				mask, func, &pcr, &template_desc, NULL,
 				&allowed_algos);
 	violation_check = ((func == FILE_CHECK || func == MMAP_CHECK ||
@@ -443,23 +443,23 @@ out:
 static int ima_file_mmap(struct file *file, unsigned long reqprot,
 			 unsigned long prot, unsigned long flags)
 {
-	struct lsm_prop prop;
+	struct lsmblob blob;
 	int ret;
 
 	if (!file)
 		return 0;
 
-	security_current_getlsmprop_subj(&prop);
+	security_current_getlsmblob_subj(&blob);
 
 	if (reqprot & PROT_EXEC) {
-		ret = process_measurement(file, current_cred(), &prop, NULL,
+		ret = process_measurement(file, current_cred(), &blob, NULL,
 					  0, MAY_EXEC, MMAP_CHECK_REQPROT);
 		if (ret)
 			return ret;
 	}
 
 	if (prot & PROT_EXEC)
-		return process_measurement(file, current_cred(), &prop, NULL,
+		return process_measurement(file, current_cred(), &blob, NULL,
 					   0, MAY_EXEC, MMAP_CHECK);
 
 	return 0;
@@ -488,7 +488,7 @@ static int ima_file_mprotect(struct vm_area_struct *vma, unsigned long reqprot,
 	char *pathbuf = NULL;
 	const char *pathname = NULL;
 	struct inode *inode;
-	struct lsm_prop prop;
+	struct lsmblob blob;
 	int result = 0;
 	int action;
 	int pcr;
@@ -498,13 +498,13 @@ static int ima_file_mprotect(struct vm_area_struct *vma, unsigned long reqprot,
 	    !(prot & PROT_EXEC) || (vma->vm_flags & VM_EXEC))
 		return 0;
 
-	security_current_getlsmprop_subj(&prop);
+	security_current_getlsmblob_subj(&blob);
 	inode = file_inode(vma->vm_file);
 	action = ima_get_action(file_mnt_idmap(vma->vm_file), inode,
-				current_cred(), &prop, MAY_EXEC, MMAP_CHECK,
+				current_cred(), &blob, MAY_EXEC, MMAP_CHECK,
 				&pcr, &template, NULL, NULL);
 	action |= ima_get_action(file_mnt_idmap(vma->vm_file), inode,
-				 current_cred(), &prop, MAY_EXEC,
+				 current_cred(), &blob, MAY_EXEC,
 				 MMAP_CHECK_REQPROT, &pcr, &template, NULL,
 				 NULL);
 
@@ -541,16 +541,19 @@ static int ima_file_mprotect(struct vm_area_struct *vma, unsigned long reqprot,
 static int ima_bprm_check(struct linux_binprm *bprm)
 {
 	int ret;
-	struct lsm_prop prop;
+	u32 secid;
+	struct lsmblob blob = { };
 
-	security_current_getlsmprop_subj(&prop);
+	security_current_getlsmblob_subj(&blob);
 	ret = process_measurement(bprm->file, current_cred(),
-				  &prop, NULL, 0, MAY_EXEC, BPRM_CHECK);
+				  &blob, NULL, 0, MAY_EXEC, BPRM_CHECK);
 	if (ret)
 		return ret;
 
-	security_cred_getlsmprop(bprm->cred, &prop);
-	return process_measurement(bprm->file, bprm->cred, &prop, NULL, 0,
+	security_cred_getsecid(bprm->cred, &secid);
+	/* stacking scaffolding */
+	blob.scaffold.secid = secid;
+	return process_measurement(bprm->file, bprm->cred, &blob, NULL, 0,
 				   MAY_EXEC, CREDS_CHECK);
 }
 
@@ -594,10 +597,10 @@ static int ima_bprm_creds_for_exec(struct linux_binprm *bprm)
  */
 static int ima_file_check(struct file *file, int mask)
 {
-	struct lsm_prop prop;
+	struct lsmblob blob;
 
-	security_current_getlsmprop_subj(&prop);
-	return process_measurement(file, current_cred(), &prop, NULL, 0,
+	security_current_getlsmblob_subj(&blob);
+	return process_measurement(file, current_cred(), &blob, NULL, 0,
 				   mask & (MAY_READ | MAY_WRITE | MAY_EXEC |
 					   MAY_APPEND), FILE_CHECK);
 }
@@ -796,7 +799,7 @@ static int ima_read_file(struct file *file, enum kernel_read_file_id read_id,
 			 bool contents)
 {
 	enum ima_hooks func;
-	struct lsm_prop prop;
+	struct lsmblob blob;
 
 	/*
 	 * Do devices using pre-allocated memory run the risk of the
@@ -816,8 +819,8 @@ static int ima_read_file(struct file *file, enum kernel_read_file_id read_id,
 
 	/* Read entire file for all partial reads. */
 	func = read_idmap[read_id] ?: FILE_CHECK;
-	security_current_getlsmprop_subj(&prop);
-	return process_measurement(file, current_cred(), &prop, NULL, 0,
+	security_current_getlsmblob_subj(&blob);
+	return process_measurement(file, current_cred(), &blob, NULL, 0,
 				   MAY_READ, func);
 }
 
@@ -846,7 +849,7 @@ static int ima_post_read_file(struct file *file, char *buf, loff_t size,
 			      enum kernel_read_file_id read_id)
 {
 	enum ima_hooks func;
-	struct lsm_prop prop;
+	struct lsmblob blob;
 
 	/* permit signed certs */
 	if (!file && read_id == READING_X509_CERTIFICATE)
@@ -859,8 +862,8 @@ static int ima_post_read_file(struct file *file, char *buf, loff_t size,
 	}
 
 	func = read_idmap[read_id] ?: FILE_CHECK;
-	security_current_getlsmprop_subj(&prop);
-	return process_measurement(file, current_cred(), &prop, buf, size,
+	security_current_getlsmblob_subj(&blob);
+	return process_measurement(file, current_cred(), &blob, buf, size,
 				   MAY_READ, func);
 }
 
@@ -995,7 +998,7 @@ int process_buffer_measurement(struct mnt_idmap *idmap,
 	int digest_hash_len = hash_digest_size[ima_hash_algo];
 	int violation = 0;
 	int action = 0;
-	struct lsm_prop prop;
+	struct lsmblob blob;
 
 	if (digest && digest_len < digest_hash_len)
 		return -EINVAL;
@@ -1018,9 +1021,9 @@ int process_buffer_measurement(struct mnt_idmap *idmap,
 	 * buffer measurements.
 	 */
 	if (func) {
-		security_current_getlsmprop_subj(&prop);
+		security_current_getlsmblob_subj(&blob);
 		action = ima_get_action(idmap, inode, current_cred(),
-					&prop, 0, func, &pcr, &template,
+					&blob, 0, func, &pcr, &template,
 					func_data, NULL);
 		if (!(action & IMA_MEASURE) && !digest)
 			return -ENOENT;

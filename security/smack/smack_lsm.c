@@ -2236,27 +2236,35 @@ static int smack_task_getsid(struct task_struct *p)
 }
 
 /**
- * smack_current_getlsmprop_subj - get the subjective secid of the current task
- * @prop: where to put the result
+ * smack_current_getlsmblob_subj - get the subjective secid of the current task
+ * @blob: where to put the result
  *
  * Sets the secid to contain a u32 version of the task's subjective smack label.
  */
-static void smack_current_getlsmprop_subj(struct lsm_prop *prop)
+static void smack_current_getlsmblob_subj(struct lsmblob *blob)
 {
-	prop->smack.skp = smk_of_current();
+	struct smack_known *skp = smk_of_current();
+
+	blob->smack.skp = skp;
+	/* stacking scaffolding */
+	blob->scaffold.secid = skp->smk_secid;
 }
 
 /**
- * smack_task_getlsmprop_obj - get the objective data of the task
+ * smack_task_getlsmblob_obj - get the objective data of the task
  * @p: the task
  * @prop: where to put the result
  *
  * Sets the secid to contain a u32 version of the task's objective smack label.
  */
-static void smack_task_getlsmprop_obj(struct task_struct *p,
-				      struct lsm_prop *prop)
+static void smack_task_getlsmblob_obj(struct task_struct *p,
+				      struct lsmblob *blob)
 {
-	prop->smack.skp = smk_of_task_struct_obj(p);
+	struct smack_known *skp = smk_of_task_struct_obj(p);
+
+	blob->smack.skp = skp;
+	/* stacking scaffolding */
+	blob->scaffold.secid = skp->smk_secid;
 }
 
 /**
@@ -5127,8 +5135,8 @@ static struct security_hook_list smack_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(task_setpgid, smack_task_setpgid),
 	LSM_HOOK_INIT(task_getpgid, smack_task_getpgid),
 	LSM_HOOK_INIT(task_getsid, smack_task_getsid),
-	LSM_HOOK_INIT(current_getlsmprop_subj, smack_current_getlsmprop_subj),
-	LSM_HOOK_INIT(task_getlsmprop_obj, smack_task_getlsmprop_obj),
+	LSM_HOOK_INIT(current_getlsmblob_subj, smack_current_getlsmblob_subj),
+	LSM_HOOK_INIT(task_getlsmblob_obj, smack_task_getlsmblob_obj),
 	LSM_HOOK_INIT(task_setnice, smack_task_setnice),
 	LSM_HOOK_INIT(task_setioprio, smack_task_setioprio),
 	LSM_HOOK_INIT(task_getioprio, smack_task_getioprio),
