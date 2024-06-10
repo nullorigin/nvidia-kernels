@@ -467,13 +467,12 @@ int security_inode_removexattr(struct mnt_idmap *idmap, struct dentry *dentry,
 void security_inode_post_removexattr(struct dentry *dentry, const char *name);
 int security_inode_need_killpriv(struct dentry *dentry);
 int security_inode_killpriv(struct mnt_idmap *idmap, struct dentry *dentry);
-int security_inode_getsecurity(struct mnt_idmap *idmap, struct inode *inode,
-                               const char *name, void **buffer, bool alloc);
-int security_inode_setsecurity(struct inode *inode, const char *name,
-                               const void *value, size_t size, int flags);
-int security_inode_listsecurity(struct inode *inode, char *buffer,
-                                size_t buffer_size);
-void security_inode_getlsmprop(struct inode *inode, struct lsm_prop *prop);
+int security_inode_getsecurity(struct mnt_idmap *idmap,
+			       struct inode *inode, const char *name,
+			       void **buffer, bool alloc);
+int security_inode_setsecurity(struct inode *inode, const char *name, const void *value, size_t size, int flags);
+int security_inode_listsecurity(struct inode *inode, char *buffer, size_t buffer_size);
+void security_inode_getlsmblob(struct inode *inode, struct lsmblob *blob);
 int security_inode_copy_up(struct dentry *src, struct cred **new);
 int security_inode_copy_up_xattr(struct dentry *src, const char *name);
 int security_inode_setintegrity(const struct inode *inode,
@@ -987,9 +986,10 @@ static inline int security_inode_listsecurity(struct inode *inode, char *buffer,
   return 0;
 }
 
-static inline void security_inode_getlsmprop(struct inode *inode,
-                                             struct lsm_prop *prop) {
-  lsmprop_init(prop);
+static inline void security_inode_getlsmblob(struct inode *inode,
+					     struct lsmblob *blob)
+{
+	lsmblob_init(blob);
 }
 
 static inline int security_inode_copy_up(struct dentry *src,

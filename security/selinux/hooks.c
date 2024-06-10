@@ -3504,16 +3504,18 @@ static int selinux_inode_listsecurity(struct inode *inode, char *buffer, size_t 
 	return len;
 }
 
-static void selinux_inode_getlsmprop(struct inode *inode, struct lsm_prop *prop)
+static void selinux_inode_getlsmblob(struct inode *inode, struct lsmblob *blob)
 {
 	struct inode_security_struct *isec = inode_security_novalidate(inode);
 
-	prop->selinux.secid = isec->sid;
+	blob->selinux.secid = isec->sid;
+	/* stacking scaffolding */
+	blob->scaffold.secid = isec->sid;
 }
 
 static int selinux_inode_copy_up(struct dentry *src, struct cred **new)
 {
-	struct lsm_prop prop;
+	struct lsmblob blob;
 	struct task_security_struct *tsec;
 	struct cred *new_creds = *new;
 
@@ -3525,8 +3527,8 @@ static int selinux_inode_copy_up(struct dentry *src, struct cred **new)
 
 	tsec = selinux_cred(new_creds);
 	/* Get label from overlay inode and set it in create_sid */
-	selinux_inode_getlsmprop(d_inode(src), &prop);
-	tsec->create_sid = prop.selinux.secid;
+	selinux_inode_getlsmblob(d_inode(src), &blob);
+	tsec->create_sid = blob.selinux.secid;
 	*new = new_creds;
 	return 0;
 }
@@ -7221,7 +7223,7 @@ static struct security_hook_list selinux_hooks[] __ro_after_init = {
 	LSM_HOOK_INIT(inode_getsecurity, selinux_inode_getsecurity),
 	LSM_HOOK_INIT(inode_setsecurity, selinux_inode_setsecurity),
 	LSM_HOOK_INIT(inode_listsecurity, selinux_inode_listsecurity),
-	LSM_HOOK_INIT(inode_getlsmprop, selinux_inode_getlsmprop),
+	LSM_HOOK_INIT(inode_getlsmblob, selinux_inode_getlsmblob),
 	LSM_HOOK_INIT(inode_copy_up, selinux_inode_copy_up),
 	LSM_HOOK_INIT(inode_copy_up_xattr, selinux_inode_copy_up_xattr),
 	LSM_HOOK_INIT(path_notify, selinux_path_notify),

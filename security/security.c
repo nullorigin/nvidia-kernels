@@ -2734,15 +2734,15 @@ int security_inode_listsecurity(struct inode *inode,
 EXPORT_SYMBOL(security_inode_listsecurity);
 
 /**
- * security_inode_getlsmprop() - Get an inode's LSM data
+ * security_inode_getlsmblob() - Get an inode's LSM data
  * @inode: inode
- * @prop: lsm specific information to return
+ * @blob: lsm specific information to return
  *
  * Get the lsm specific information associated with the node.
  */
-void security_inode_getlsmprop(struct inode *inode, struct lsm_prop *prop)
+void security_inode_getlsmblob(struct inode *inode, struct lsmblob *blob)
 {
-	call_void_hook(inode_getlsmprop, inode, prop);
+	call_void_hook(inode_getlsmblob, inode, blob);
 }
 
 /**
