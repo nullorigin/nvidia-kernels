@@ -2840,7 +2840,7 @@ static __be32 nfsd4_encode_nfsace4(struct xdr_stream *xdr, struct svc_rqst *rqst
 #ifdef CONFIG_NFSD_V4_SECURITY_LABEL
 static inline __be32
 nfsd4_encode_security_label(struct xdr_stream *xdr, struct svc_rqst *rqstp,
-			    const struct lsm_context *context)
+			    const struct lsmcontext *context)
 {
 	__be32 *p;
 
@@ -2860,7 +2860,7 @@ nfsd4_encode_security_label(struct xdr_stream *xdr, struct svc_rqst *rqstp,
 #else
 static inline __be32
 nfsd4_encode_security_label(struct xdr_stream *xdr, struct svc_rqst *rqstp,
-			    struct lsm_context *context)
+			    struct lsmcontext *context)
 { return 0; }
 #endif
 
@@ -2943,7 +2943,7 @@ struct nfsd4_fattr_args {
 	struct nfs4_acl		*acl;
 	u64			change_attr;
 #ifdef CONFIG_NFSD_V4_SECURITY_LABEL
-	struct lsm_context	context;
+	struct lsmcontext	context;
 #endif
 	u32			rdattr_err;
 	bool			contextsupport;
@@ -3728,12 +3728,8 @@ nfsd4_encode_fattr4(struct svc_rqst *rqstp, struct xdr_stream *xdr,
 
 out:
 #ifdef CONFIG_NFSD_V4_SECURITY_LABEL
-	if (args.context) {
-		struct lsmcontext scaff; /* scaffolding */
-
-		lsmcontext_init(&scaff, args.context, args.contextlen, 0);
-		security_release_secctx(&scaff);
-	}
+	if (args.context.context)
+		security_release_secctx(&args.context);
 #endif /* CONFIG_NFSD_V4_SECURITY_LABEL */
 	kfree(args.acl);
 	if (tempfh) {

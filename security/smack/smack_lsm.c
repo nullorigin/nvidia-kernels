@@ -4907,7 +4907,7 @@ static int smack_inode_setsecctx(struct dentry *dentry, void *ctx, u32 ctxlen)
 				     ctx, ctxlen, 0, NULL);
 }
 
-static int smack_inode_getsecctx(struct inode *inode, struct lsm_context *cp)
+static int smack_inode_getsecctx(struct inode *inode, struct lsmcontext *cp)
 {
 	struct smack_known *skp = smk_of_inode(inode);
 

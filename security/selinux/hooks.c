@@ -6744,7 +6744,7 @@ static int selinux_inode_setsecctx(struct dentry *dentry, void *ctx, u32 ctxlen)
 				     ctx, ctxlen, 0, NULL);
 }
 
-static int selinux_inode_getsecctx(struct inode *inode, struct lsm_context *cp)
+static int selinux_inode_getsecctx(struct inode *inode, struct lsmcontext *cp)
 {
 	int len;
 	len = selinux_inode_getsecurity(&nop_mnt_idmap, inode,

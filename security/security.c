@@ -4454,7 +4454,7 @@ EXPORT_SYMBOL(security_inode_setsecctx);
  *
  * Return: Returns 0 on success, error on failure.
  */
-int security_inode_getsecctx(struct inode *inode, struct lsm_context *cp)
+int security_inode_getsecctx(struct inode *inode, struct lsmcontext *cp)
 {
 	memset(cp, 0, sizeof(*cp));
 	return call_int_hook(inode_getsecctx, inode, cp);
