@@ -316,7 +316,7 @@ int __xe_vm_userptr_needs_repin(struct xe_vm *vm)
 
 #define XE_VM_REBIND_RETRY_TIMEOUT_MS 1000
 
-/**
+/*
  * xe_vm_kill() - VM Kill
  * @vm: The VM.
  * @unlocked: Flag indicates the VM's dma-resv is not held
@@ -324,7 +324,7 @@ int __xe_vm_userptr_needs_repin(struct xe_vm *vm)
  * Kill the VM by setting banned flag indicated VM is no longer available for
  * use. If in preempt fence mode, also kill all exec queue attached to the VM.
  */
-void xe_vm_kill(struct xe_vm *vm, bool unlocked)
+static void xe_vm_kill(struct xe_vm *vm, bool unlocked)
 {
 	struct xe_exec_queue *q;
 
