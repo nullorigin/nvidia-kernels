@@ -316,7 +316,7 @@ int __xe_vm_userptr_needs_repin(struct xe_vm *vm)
 
 #define XE_VM_REBIND_RETRY_TIMEOUT_MS 1000
 
-/*
+/**
  * xe_vm_kill() - VM Kill
  * @vm: The VM.
  * @unlocked: Flag indicates the VM's dma-resv is not held
@@ -324,7 +324,7 @@ int __xe_vm_userptr_needs_repin(struct xe_vm *vm)
  * Kill the VM by setting banned flag indicated VM is no longer available for
  * use. If in preempt fence mode, also kill all exec queue attached to the VM.
  */
-static void xe_vm_kill(struct xe_vm *vm, bool unlocked)
+void xe_vm_kill(struct xe_vm *vm, bool unlocked)
 {
 	struct xe_exec_queue *q;
 
@@ -2127,10 +2127,8 @@ static int xe_vma_op_commit(struct xe_vm *vm, struct xe_vma_op *op)
 	return err;
 }
 
-static int vm_bind_ioctl_ops_parse(struct xe_vm *vm, struct xe_exec_queue *q,
-				   struct drm_gpuva_ops *ops,
-				   struct xe_sync_entry *syncs, u32 num_syncs,
-				   struct xe_vma_ops *vops, bool last)
+static int vm_bind_ioctl_ops_parse(struct xe_vm *vm, struct drm_gpuva_ops *ops,
+				   struct xe_vma_ops *vops)
 {
 	struct xe_device *xe = vm->xe;
 	struct drm_gpuva_op *__op;
@@ -2262,6 +2260,7 @@ static int vm_bind_ioctl_ops_parse(struct xe_vm *vm, struct xe_exec_queue *q,
 		}
 		case DRM_GPUVA_OP_UNMAP:
 		case DRM_GPUVA_OP_PREFETCH:
+			/* FIXME: Need to skip some prefetch ops */
 			xe_vma_ops_incr_pt_update_ops(vops, op->tile_mask);
 			break;
 		default:
@@ -2469,38 +2468,6 @@ static int vm_bind_ioctl_ops_lock_and_prep(struct drm_exec *exec,
 	return 0;
 }
 
-static void op_trace(struct xe_vma_op *op)
-{
-	switch (op->base.op) {
-	case DRM_GPUVA_OP_MAP:
-		trace_xe_vma_bind(op->map.vma);
-		break;
-	case DRM_GPUVA_OP_REMAP:
-		trace_xe_vma_unbind(gpuva_to_vma(op->base.remap.unmap->va));
-		if (op->remap.prev)
-			trace_xe_vma_bind(op->remap.prev);
-		if (op->remap.next)
-			trace_xe_vma_bind(op->remap.next);
-		break;
-	case DRM_GPUVA_OP_UNMAP:
-		trace_xe_vma_unbind(gpuva_to_vma(op->base.unmap.va));
-		break;
-	case DRM_GPUVA_OP_PREFETCH:
-		trace_xe_vma_bind(gpuva_to_vma(op->base.prefetch.va));
-		break;
-	default:
-		XE_WARN_ON("NOT POSSIBLE");
-	}
-}
-
-static void trace_xe_vm_ops_execute(struct xe_vma_ops *vops)
-{
-	struct xe_vma_op *op;
-
-	list_for_each_entry(op, &vops->list, link)
-		op_trace(op);
-}
-
 static int vm_ops_setup_tile_args(struct xe_vm *vm, struct xe_vma_ops *vops)
 {
 	struct xe_exec_queue *q = vops->q;
@@ -2544,10 +2511,8 @@ static struct dma_fence *ops_execute(struct xe_vm *vm,
 	if (number_tiles > 1) {
 		fences = kmalloc_array(number_tiles, sizeof(*fences),
 				       GFP_KERNEL);
-		if (!fences) {
-			fence = ERR_PTR(-ENOMEM);
-			goto err_trace;
-		}
+		if (!fences)
+			return ERR_PTR(-ENOMEM);
 	}
 
 	for_each_tile(tile, vm->xe, id) {
@@ -2560,8 +2525,6 @@ static struct dma_fence *ops_execute(struct xe_vm *vm,
 			goto err_out;
 		}
 	}
-
-	trace_xe_vm_ops_execute(vops);
 
 	for_each_tile(tile, vm->xe, id) {
 		if (!vops->pt_update_ops[id].num_ops)
@@ -2594,6 +2557,20 @@ static struct dma_fence *ops_execute(struct xe_vm *vm,
 
 		xe_pt_update_ops_fini(tile, vops);
 	}
+
+	return fence;
+
+err_out:
+	for_each_tile(tile, vm->xe, id) {
+		if (!vops->pt_update_ops[id].num_ops)
+			continue;
+
+		xe_pt_update_ops_abort(tile, vops);
+	}
+	while (current_fence)
+		dma_fence_put(fences[--current_fence]);
+	kfree(fences);
+	kfree(cf);
 
 	return fence;
 

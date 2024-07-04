@@ -928,36 +928,6 @@ static void xe_pt_abort_bind(struct xe_vma *vma,
 		pt_dir = as_xe_pt_dir(pt);
 		for (j = 0; j < entries[i].qwords; j++) {
 			u32 j_ = j + entries[i].ofs;
-			struct xe_pt *newpte = xe_pt_entry(pt_dir, j_);
-			struct xe_pt *oldpte = entries[i].pt_entries[j].pt;
-
-			pt_dir->children[j_] = oldpte ? &oldpte->base : 0;
-			xe_pt_destroy(newpte, xe_vma_vm(vma)->flags, NULL);
-		}
-	}
-}
-
-static void xe_pt_commit_prepare_bind(struct xe_vma *vma,
-				      struct xe_vm_pgtable_update *entries,
-				      u32 num_entries, bool rebind)
-{
-	u32 i, j;
-
-	xe_pt_commit_locks_assert(vma);
-
-	for (i = 0; i < num_entries; i++) {
-		struct xe_pt *pt = entries[i].pt;
-		struct xe_pt_dir *pt_dir;
-
-		if (!rebind)
-			pt->num_live += entries[i].qwords;
-
-		if (!pt->level)
-			continue;
-
-		pt_dir = as_xe_pt_dir(pt);
-		for (j = 0; j < entries[i].qwords; j++) {
-			u32 j_ = j + entries[i].ofs;
 			struct xe_pt *newpte = entries[i].pt_entries[j].pt;
 			struct xe_pt *oldpte = NULL;
 
@@ -965,7 +935,6 @@ static void xe_pt_commit_prepare_bind(struct xe_vma *vma,
 				oldpte = xe_pt_entry(pt_dir, j_);
 
 			pt_dir->children[j_] = &newpte->base;
-			entries[i].pt_entries[j].pt = oldpte;
 		}
 	}
 }
@@ -1152,12 +1121,10 @@ static int xe_pt_vm_dependencies(struct xe_sched_job *job,
 			return err;
 	}
 
-	if (!(pt_update_ops->q->flags & EXEC_QUEUE_FLAG_KERNEL)) {
-		if (job)
-			err = xe_sched_job_last_fence_add_dep(job, vm);
-		else
-			err = xe_exec_queue_last_fence_test_dep(pt_update_ops->q, vm);
-	}
+	if (job)
+		err = xe_sched_job_last_fence_add_dep(job, vm);
+	else
+		err = xe_exec_queue_last_fence_test_dep(pt_update_ops->q, vm);
 
 	for (i = 0; job && !err && i < vops->num_syncs; i++)
 		err = xe_sync_entry_add_deps(&vops->syncs[i], job);
@@ -1378,6 +1345,8 @@ static void invalidation_fence_init(struct xe_gt *gt,
 	}
 
 	xe_gt_assert(gt, !ret || ret == -ENOENT);
+
+	return ret && ret != -ENOENT ? ret : 0;
 }
 
 struct xe_pt_stage_unbind_walk {
@@ -1915,11 +1884,303 @@ static void unbind_op_commit(struct xe_vm *vm, struct xe_tile *tile,
 	}
 }
 
+static void
+xe_pt_update_ops_rfence_interval(struct xe_vm_pgtable_update_ops *pt_update_ops,
+				 struct xe_vma *vma)
+{
+	u32 current_op = pt_update_ops->current_op;
+	struct xe_vm_pgtable_update_op *pt_op = &pt_update_ops->ops[current_op];
+	int i, level = 0;
+	u64 start, last;
+
+	for (i = 0; i < pt_op->num_entries; i++) {
+		const struct xe_vm_pgtable_update *entry = &pt_op->entries[i];
+
+		if (entry->pt->level > level)
+			level = entry->pt->level;
+	}
+
+	/* Greedy (non-optimal) calculation but simple */
+	start = ALIGN_DOWN(xe_vma_start(vma), 0x1ull << xe_pt_shift(level));
+	last = ALIGN(xe_vma_end(vma), 0x1ull << xe_pt_shift(level)) - 1;
+
+	if (start < pt_update_ops->start)
+		pt_update_ops->start = start;
+	if (last > pt_update_ops->last)
+		pt_update_ops->last = last;
+}
+
+static int vma_reserve_fences(struct xe_device *xe, struct xe_vma *vma)
+{
+	if (!xe_vma_has_no_bo(vma) && !xe_vma_bo(vma)->vm)
+		return dma_resv_reserve_fences(xe_vma_bo(vma)->ttm.base.resv,
+					       xe->info.tile_count);
+
+	return 0;
+}
+
+static int bind_op_prepare(struct xe_vm *vm, struct xe_tile *tile,
+			   struct xe_vm_pgtable_update_ops *pt_update_ops,
+			   struct xe_vma *vma)
+{
+	u32 current_op = pt_update_ops->current_op;
+	struct xe_vm_pgtable_update_op *pt_op = &pt_update_ops->ops[current_op];
+	struct llist_head *deferred = &pt_update_ops->deferred;
+	int err;
+
+	xe_bo_assert_held(xe_vma_bo(vma));
+
+	vm_dbg(&xe_vma_vm(vma)->xe->drm,
+	       "Preparing bind, with range [%llx...%llx)\n",
+	       xe_vma_start(vma), xe_vma_end(vma) - 1);
+
+	pt_op->vma = NULL;
+	pt_op->bind = true;
+	pt_op->rebind = BIT(tile->id) & vma->tile_present;
+
+	err = vma_reserve_fences(tile_to_xe(tile), vma);
+	if (err)
+		return err;
+
+	err = xe_pt_prepare_bind(tile, vma, pt_op->entries,
+				 &pt_op->num_entries);
+	if (!err) {
+		xe_tile_assert(tile, pt_op->num_entries <=
+			       ARRAY_SIZE(pt_op->entries));
+		xe_vm_dbg_print_entries(tile_to_xe(tile), pt_op->entries,
+					pt_op->num_entries, true);
+
+		xe_pt_update_ops_rfence_interval(pt_update_ops, vma);
+		++pt_update_ops->current_op;
+		pt_update_ops->needs_userptr_lock |= xe_vma_is_userptr(vma);
+
+		/*
+		 * If rebind, we have to invalidate TLB on !LR vms to invalidate
+		 * cached PTEs point to freed memory. On LR vms this is done
+		 * automatically when the context is re-enabled by the rebind worker,
+		 * or in fault mode it was invalidated on PTE zapping.
+		 *
+		 * If !rebind, and scratch enabled VMs, there is a chance the scratch
+		 * PTE is already cached in the TLB so it needs to be invalidated.
+		 * On !LR VMs this is done in the ring ops preceding a batch, but on
+		 * non-faulting LR, in particular on user-space batch buffer chaining,
+		 * it needs to be done here.
+		 */
+		if ((!pt_op->rebind && xe_vm_has_scratch(vm) &&
+		     xe_vm_in_preempt_fence_mode(vm)))
+			pt_update_ops->needs_invalidation = true;
+		else if (pt_op->rebind && !xe_vm_in_lr_mode(vm))
+			/* We bump also if batch_invalidate_tlb is true */
+			vm->tlb_flush_seqno++;
+
+		/* FIXME: Don't commit right away */
+		vma->tile_staged |= BIT(tile->id);
+		pt_op->vma = vma;
+		xe_pt_commit_bind(vma, pt_op->entries, pt_op->num_entries,
+				  pt_op->rebind, deferred);
+	}
+
+	return err;
+}
+
+static int unbind_op_prepare(struct xe_tile *tile,
+			     struct xe_vm_pgtable_update_ops *pt_update_ops,
+			     struct xe_vma *vma)
+{
+	u32 current_op = pt_update_ops->current_op;
+	struct xe_vm_pgtable_update_op *pt_op = &pt_update_ops->ops[current_op];
+	struct llist_head *deferred = &pt_update_ops->deferred;
+	int err;
+
+	if (!((vma->tile_present | vma->tile_staged) & BIT(tile->id)))
+		return 0;
+
+	xe_bo_assert_held(xe_vma_bo(vma));
+
+	vm_dbg(&xe_vma_vm(vma)->xe->drm,
+	       "Preparing unbind, with range [%llx...%llx)\n",
+	       xe_vma_start(vma), xe_vma_end(vma) - 1);
+
+	/*
+	 * Wait for invalidation to complete. Can corrupt internal page table
+	 * state if an invalidation is running while preparing an unbind.
+	 */
+	if (xe_vma_is_userptr(vma) && xe_vm_in_fault_mode(xe_vma_vm(vma)))
+		mmu_interval_read_begin(&to_userptr_vma(vma)->userptr.notifier);
+
+	pt_op->vma = vma;
+	pt_op->bind = false;
+	pt_op->rebind = false;
+
+	err = vma_reserve_fences(tile_to_xe(tile), vma);
+	if (err)
+		return err;
+
+	pt_op->num_entries = xe_pt_stage_unbind(tile, vma, pt_op->entries);
+
+	xe_vm_dbg_print_entries(tile_to_xe(tile), pt_op->entries,
+				pt_op->num_entries, false);
+	xe_pt_update_ops_rfence_interval(pt_update_ops, vma);
+	++pt_update_ops->current_op;
+	pt_update_ops->needs_userptr_lock |= xe_vma_is_userptr(vma);
+	pt_update_ops->needs_invalidation = true;
+
+	/* FIXME: Don't commit right away */
+	xe_pt_commit_unbind(vma, pt_op->entries, pt_op->num_entries,
+			    deferred);
+
+	return 0;
+}
+
+static int op_prepare(struct xe_vm *vm,
+		      struct xe_tile *tile,
+		      struct xe_vm_pgtable_update_ops *pt_update_ops,
+		      struct xe_vma_op *op)
+{
+	int err = 0;
+
+	xe_vm_assert_held(vm);
+
+	switch (op->base.op) {
+	case DRM_GPUVA_OP_MAP:
+		if (!op->map.immediate && xe_vm_in_fault_mode(vm))
+			break;
+
+		err = bind_op_prepare(vm, tile, pt_update_ops, op->map.vma);
+		pt_update_ops->wait_vm_kernel = true;
+		break;
+	case DRM_GPUVA_OP_REMAP:
+		err = unbind_op_prepare(tile, pt_update_ops,
+					gpuva_to_vma(op->base.remap.unmap->va));
+
+		if (!err && op->remap.prev) {
+			err = bind_op_prepare(vm, tile, pt_update_ops,
+					      op->remap.prev);
+			pt_update_ops->wait_vm_bookkeep = true;
+		}
+		if (!err && op->remap.next) {
+			err = bind_op_prepare(vm, tile, pt_update_ops,
+					      op->remap.next);
+			pt_update_ops->wait_vm_bookkeep = true;
+		}
+		break;
+	case DRM_GPUVA_OP_UNMAP:
+		err = unbind_op_prepare(tile, pt_update_ops,
+					gpuva_to_vma(op->base.unmap.va));
+		break;
+	case DRM_GPUVA_OP_PREFETCH:
+		err = bind_op_prepare(vm, tile, pt_update_ops,
+				      gpuva_to_vma(op->base.prefetch.va));
+		pt_update_ops->wait_vm_kernel = true;
+		break;
+	default:
+		drm_warn(&vm->xe->drm, "NOT POSSIBLE");
+	}
+
+	return err;
+}
+
+static void
+xe_pt_update_ops_init(struct xe_vm_pgtable_update_ops *pt_update_ops)
+{
+	init_llist_head(&pt_update_ops->deferred);
+	pt_update_ops->start = ~0x0ull;
+	pt_update_ops->last = 0x0ull;
+}
+
+/**
+ * xe_pt_update_ops_prepare() - Prepare PT update operations
+ * @tile: Tile of PT update operations
+ * @vops: VMA operationa
+ *
+ * Prepare PT update operations which includes updating internal PT state,
+ * allocate memory for page tables, populate page table being pruned in, and
+ * create PT update operations for leaf insertion / removal.
+ *
+ * Return: 0 on success, negative error code on error.
+ */
+int xe_pt_update_ops_prepare(struct xe_tile *tile, struct xe_vma_ops *vops)
+{
+	struct xe_vm_pgtable_update_ops *pt_update_ops =
+		&vops->pt_update_ops[tile->id];
+	struct xe_vma_op *op;
+	int err;
+
+	lockdep_assert_held(&vops->vm->lock);
+	xe_vm_assert_held(vops->vm);
+
+	xe_pt_update_ops_init(pt_update_ops);
+
+	err = dma_resv_reserve_fences(xe_vm_resv(vops->vm),
+				      tile_to_xe(tile)->info.tile_count);
+	if (err)
+		return err;
+
+	list_for_each_entry(op, &vops->list, link) {
+		err = op_prepare(vops->vm, tile, pt_update_ops, op);
+
+		if (err)
+			return err;
+	}
+
+	xe_tile_assert(tile, pt_update_ops->current_op <=
+		       pt_update_ops->num_ops);
+
+	return 0;
+}
+
+static void bind_op_commit(struct xe_vm *vm, struct xe_tile *tile,
+			   struct xe_vm_pgtable_update_ops *pt_update_ops,
+			   struct xe_vma *vma, struct dma_fence *fence)
+{
+	if (!xe_vma_has_no_bo(vma) && !xe_vma_bo(vma)->vm)
+		dma_resv_add_fence(xe_vma_bo(vma)->ttm.base.resv, fence,
+				   pt_update_ops->wait_vm_bookkeep ?
+				   DMA_RESV_USAGE_KERNEL :
+				   DMA_RESV_USAGE_BOOKKEEP);
+	vma->tile_present |= BIT(tile->id);
+	vma->tile_staged &= ~BIT(tile->id);
+	if (xe_vma_is_userptr(vma)) {
+		lockdep_assert_held_read(&vm->userptr.notifier_lock);
+		to_userptr_vma(vma)->userptr.initial_bind = true;
+	}
+
+	/*
+	 * Kick rebind worker if this bind triggers preempt fences and not in
+	 * the rebind worker
+	 */
+	if (pt_update_ops->wait_vm_bookkeep &&
+	    xe_vm_in_preempt_fence_mode(vm) &&
+	    !current->mm)
+		xe_vm_queue_rebind_worker(vm);
+}
+
+static void unbind_op_commit(struct xe_vm *vm, struct xe_tile *tile,
+			     struct xe_vm_pgtable_update_ops *pt_update_ops,
+			     struct xe_vma *vma, struct dma_fence *fence)
+{
+	if (!xe_vma_has_no_bo(vma) && !xe_vma_bo(vma)->vm)
+		dma_resv_add_fence(xe_vma_bo(vma)->ttm.base.resv, fence,
+				   pt_update_ops->wait_vm_bookkeep ?
+				   DMA_RESV_USAGE_KERNEL :
+				   DMA_RESV_USAGE_BOOKKEEP);
+	vma->tile_present &= ~BIT(tile->id);
+	if (!vma->tile_present) {
+		list_del_init(&vma->combined_links.rebind);
+		if (xe_vma_is_userptr(vma)) {
+			lockdep_assert_held_read(&vm->userptr.notifier_lock);
+
+			spin_lock(&vm->userptr.invalidated_lock);
+			list_del_init(&to_userptr_vma(vma)->userptr.invalidate_link);
+			spin_unlock(&vm->userptr.invalidated_lock);
+		}
+	}
+}
+
 static void op_commit(struct xe_vm *vm,
 		      struct xe_tile *tile,
 		      struct xe_vm_pgtable_update_ops *pt_update_ops,
-		      struct xe_vma_op *op, struct dma_fence *fence,
-		      struct dma_fence *fence2)
+		      struct xe_vma_op *op, struct dma_fence *fence)
 {
 	xe_vm_assert_held(vm);
 
@@ -1928,28 +2189,26 @@ static void op_commit(struct xe_vm *vm,
 		if (!op->map.immediate && xe_vm_in_fault_mode(vm))
 			break;
 
-		bind_op_commit(vm, tile, pt_update_ops, op->map.vma, fence,
-			       fence2);
+		bind_op_commit(vm, tile, pt_update_ops, op->map.vma, fence);
 		break;
 	case DRM_GPUVA_OP_REMAP:
 		unbind_op_commit(vm, tile, pt_update_ops,
-				 gpuva_to_vma(op->base.remap.unmap->va), fence,
-				 fence2);
+				 gpuva_to_vma(op->base.remap.unmap->va), fence);
 
 		if (op->remap.prev)
 			bind_op_commit(vm, tile, pt_update_ops, op->remap.prev,
-				       fence, fence2);
+				       fence);
 		if (op->remap.next)
 			bind_op_commit(vm, tile, pt_update_ops, op->remap.next,
-				       fence, fence2);
+				       fence);
 		break;
 	case DRM_GPUVA_OP_UNMAP:
 		unbind_op_commit(vm, tile, pt_update_ops,
-				 gpuva_to_vma(op->base.unmap.va), fence, fence2);
+				 gpuva_to_vma(op->base.unmap.va), fence);
 		break;
 	case DRM_GPUVA_OP_PREFETCH:
 		bind_op_commit(vm, tile, pt_update_ops,
-			       gpuva_to_vma(op->base.prefetch.va), fence, fence2);
+			       gpuva_to_vma(op->base.prefetch.va), fence);
 		break;
 	default:
 		drm_warn(&vm->xe->drm, "NOT POSSIBLE");
@@ -1986,12 +2245,10 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 	struct xe_vm_pgtable_update_ops *pt_update_ops =
 		&vops->pt_update_ops[tile->id];
 	struct dma_fence *fence;
-	struct invalidation_fence *ifence = NULL, *mfence = NULL;
-	struct dma_fence **fences = NULL;
-	struct dma_fence_array *cf = NULL;
+	struct invalidation_fence *ifence = NULL;
 	struct xe_range_fence *rfence;
 	struct xe_vma_op *op;
-	int err = 0, i;
+	int err = 0;
 	struct xe_migrate_pt_update update = {
 		.ops = pt_update_ops->needs_userptr_lock ?
 			&userptr_migrate_ops :
@@ -2009,35 +2266,10 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 		return dma_fence_get_stub();
 	}
 
-#ifdef TEST_VM_OPS_ERROR
-	if (vops->inject_error &&
-	    vm->xe->vm_inject_error_position == FORCE_OP_ERROR_RUN)
-		return ERR_PTR(-ENOSPC);
-#endif
-
 	if (pt_update_ops->needs_invalidation) {
 		ifence = kzalloc(sizeof(*ifence), GFP_KERNEL);
-		if (!ifence) {
-			err = -ENOMEM;
-			goto kill_vm_tile1;
-		}
-		if (tile->media_gt) {
-			mfence = kzalloc(sizeof(*ifence), GFP_KERNEL);
-			if (!mfence) {
-				err = -ENOMEM;
-				goto free_ifence;
-			}
-			fences = kmalloc_array(2, sizeof(*fences), GFP_KERNEL);
-			if (!fences) {
-				err = -ENOMEM;
-				goto free_ifence;
-			}
-			cf = dma_fence_array_alloc(2);
-			if (!cf) {
-				err = -ENOMEM;
-				goto free_ifence;
-			}
-		}
+		if (!ifence)
+			return ERR_PTR(-ENOMEM);
 	}
 
 	rfence = kzalloc(sizeof(*rfence), GFP_KERNEL);
@@ -2052,15 +2284,6 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 		goto free_rfence;
 	}
 
-	/* Point of no return - VM killed if failure after this */
-	for (i = 0; i < pt_update_ops->current_op; ++i) {
-		struct xe_vm_pgtable_update_op *pt_op = &pt_update_ops->ops[i];
-
-		xe_pt_commit(pt_op->vma, pt_op->entries,
-			     pt_op->num_entries, &pt_update_ops->deferred);
-		pt_op->vma = NULL;	/* skip in xe_pt_update_ops_abort */
-	}
-
 	if (xe_range_fence_insert(&vm->rftree[tile->id], rfence,
 				  &xe_range_fence_kfree_ops,
 				  pt_update_ops->start,
@@ -2069,70 +2292,39 @@ xe_pt_update_ops_run(struct xe_tile *tile, struct xe_vma_ops *vops)
 
 	/* tlb invalidation must be done before signaling rebind */
 	if (ifence) {
-		if (mfence)
-			dma_fence_get(fence);
-		invalidation_fence_init(tile->primary_gt, ifence, fence,
-					pt_update_ops->start,
-					pt_update_ops->last, vm->usm.asid);
-		if (mfence) {
-			invalidation_fence_init(tile->media_gt, mfence, fence,
-						pt_update_ops->start,
-						pt_update_ops->last, vm->usm.asid);
-			fences[0] = &ifence->base.base;
-			fences[1] = &mfence->base.base;
-			dma_fence_array_init(cf, 2, fences,
-					     vm->composite_fence_ctx,
-					     vm->composite_fence_seqno++,
-					     false);
-			fence = &cf->base;
-		} else {
-			fence = &ifence->base.base;
-		}
+		err = invalidation_fence_init(tile->primary_gt, ifence, fence,
+					      pt_update_ops->start,
+					      pt_update_ops->last,
+					      vm->usm.asid);
+		if (err)
+			goto put_fence;
+		fence = &ifence->base.base;
 	}
 
-	if (!mfence) {
-		dma_resv_add_fence(xe_vm_resv(vm), fence,
-				   pt_update_ops->wait_vm_bookkeep ?
-				   DMA_RESV_USAGE_KERNEL :
-				   DMA_RESV_USAGE_BOOKKEEP);
+	dma_resv_add_fence(xe_vm_resv(vm), fence,
+			   pt_update_ops->wait_vm_bookkeep ?
+			   DMA_RESV_USAGE_KERNEL :
+			   DMA_RESV_USAGE_BOOKKEEP);
 
-		list_for_each_entry(op, &vops->list, link)
-			op_commit(vops->vm, tile, pt_update_ops, op, fence, NULL);
-	} else {
-		dma_resv_add_fence(xe_vm_resv(vm), &ifence->base.base,
-				   pt_update_ops->wait_vm_bookkeep ?
-				   DMA_RESV_USAGE_KERNEL :
-				   DMA_RESV_USAGE_BOOKKEEP);
-
-		dma_resv_add_fence(xe_vm_resv(vm), &mfence->base.base,
-				   pt_update_ops->wait_vm_bookkeep ?
-				   DMA_RESV_USAGE_KERNEL :
-				   DMA_RESV_USAGE_BOOKKEEP);
-
-		list_for_each_entry(op, &vops->list, link)
-			op_commit(vops->vm, tile, pt_update_ops, op,
-				  &ifence->base.base, &mfence->base.base);
-	}
+	list_for_each_entry(op, &vops->list, link)
+		op_commit(vops->vm, tile, pt_update_ops, op, fence);
 
 	if (pt_update_ops->needs_userptr_lock)
 		up_read(&vm->userptr.notifier_lock);
 
 	return fence;
 
+put_fence:
+	if (pt_update_ops->needs_userptr_lock)
+		up_read(&vm->userptr.notifier_lock);
+	dma_fence_put(fence);
 free_rfence:
 	kfree(rfence);
 free_ifence:
-	kfree(cf);
-	kfree(fences);
-	kfree(mfence);
 	kfree(ifence);
-kill_vm_tile1:
-	if (err != -EAGAIN && tile->id)
-		xe_vm_kill(vops->vm, false);
 
 	return ERR_PTR(err);
 }
-ALLOW_ERROR_INJECTION(xe_pt_update_ops_run, ERRNO);
 
 /**
  * xe_pt_update_ops_fini() - Finish PT update operations
@@ -2150,10 +2342,12 @@ void xe_pt_update_ops_fini(struct xe_tile *tile, struct xe_vma_ops *vops)
 	lockdep_assert_held(&vops->vm->lock);
 	xe_vm_assert_held(vops->vm);
 
-	for (i = 0; i < pt_update_ops->current_op; ++i) {
+	/* FIXME: Not 100% correct */
+	for (i = 0; i < pt_update_ops->num_ops; ++i) {
 		struct xe_vm_pgtable_update_op *pt_op = &pt_update_ops->ops[i];
 
-		xe_pt_free_bind(pt_op->entries, pt_op->num_entries);
+		if (pt_op->bind)
+			xe_pt_free_bind(pt_op->entries, pt_op->num_entries);
 	}
 	xe_bo_put_commit(&vops->pt_update_ops[tile->id].deferred);
 }
@@ -2167,28 +2361,10 @@ void xe_pt_update_ops_fini(struct xe_tile *tile, struct xe_vma_ops *vops)
  */
 void xe_pt_update_ops_abort(struct xe_tile *tile, struct xe_vma_ops *vops)
 {
-	struct xe_vm_pgtable_update_ops *pt_update_ops =
-		&vops->pt_update_ops[tile->id];
-	int i;
-
 	lockdep_assert_held(&vops->vm->lock);
 	xe_vm_assert_held(vops->vm);
 
-	for (i = pt_update_ops->num_ops - 1; i >= 0; --i) {
-		struct xe_vm_pgtable_update_op *pt_op =
-			&pt_update_ops->ops[i];
-
-		if (!pt_op->vma || i >= pt_update_ops->current_op)
-			continue;
-
-		if (pt_op->bind)
-			xe_pt_abort_bind(pt_op->vma, pt_op->entries,
-					 pt_op->num_entries,
-					 pt_op->rebind);
-		else
-			xe_pt_abort_unbind(pt_op->vma, pt_op->entries,
-					   pt_op->num_entries);
-	}
-
-	xe_pt_update_ops_fini(tile, vops);
+	/* FIXME: Just kill VM for now + cleanup PTs */
+	xe_bo_put_commit(&vops->pt_update_ops[tile->id].deferred);
+	xe_vm_kill(vops->vm, false);
 }
