@@ -721,7 +721,7 @@ int xe_vm_userptr_check_repin(struct xe_vm *vm)
 		list_empty_careful(&vm->userptr.invalidated)) ? 0 : -EAGAIN;
 }
 
-static int xe_vma_ops_alloc(struct xe_vma_ops *vops, bool array_of_binds)
+static int xe_vma_ops_alloc(struct xe_vma_ops *vops)
 {
 	int i;
 
@@ -732,14 +732,13 @@ static int xe_vma_ops_alloc(struct xe_vma_ops *vops, bool array_of_binds)
 		vops->pt_update_ops[i].ops =
 			kmalloc_array(vops->pt_update_ops[i].num_ops,
 				      sizeof(*vops->pt_update_ops[i].ops),
-				      GFP_KERNEL | __GFP_RETRY_MAYFAIL | __GFP_NOWARN);
+				      GFP_KERNEL);
 		if (!vops->pt_update_ops[i].ops)
-			return array_of_binds ? -ENOBUFS : -ENOMEM;
+			return -ENOMEM;
 	}
 
 	return 0;
 }
-ALLOW_ERROR_INJECTION(xe_vma_ops_alloc, ERRNO);
 
 static void xe_vma_ops_fini(struct xe_vma_ops *vops)
 {
@@ -828,7 +827,7 @@ int xe_vm_rebind(struct xe_vm *vm, bool rebind_worker)
 			goto free_ops;
 	}
 
-	err = xe_vma_ops_alloc(&vops, false);
+	err = xe_vma_ops_alloc(&vops);
 	if (err)
 		goto free_ops;
 
@@ -875,7 +874,7 @@ struct dma_fence *xe_vma_rebind(struct xe_vm *vm, struct xe_vma *vma, u8 tile_ma
 	if (err)
 		return ERR_PTR(err);
 
-	err = xe_vma_ops_alloc(&vops, false);
+	err = xe_vma_ops_alloc(&vops);
 	if (err) {
 		fence = ERR_PTR(err);
 		goto free_ops;
@@ -2128,8 +2127,10 @@ static int xe_vma_op_commit(struct xe_vm *vm, struct xe_vma_op *op)
 	return err;
 }
 
-static int vm_bind_ioctl_ops_parse(struct xe_vm *vm, struct drm_gpuva_ops *ops,
-				   struct xe_vma_ops *vops)
+static int vm_bind_ioctl_ops_parse(struct xe_vm *vm, struct xe_exec_queue *q,
+				   struct drm_gpuva_ops *ops,
+				   struct xe_sync_entry *syncs, u32 num_syncs,
+				   struct xe_vma_ops *vops, bool last)
 {
 	struct xe_device *xe = vm->xe;
 	struct drm_gpuva_op *__op;
@@ -2261,7 +2262,6 @@ static int vm_bind_ioctl_ops_parse(struct xe_vm *vm, struct drm_gpuva_ops *ops,
 		}
 		case DRM_GPUVA_OP_UNMAP:
 		case DRM_GPUVA_OP_PREFETCH:
-			/* FIXME: Need to skip some prefetch ops */
 			xe_vma_ops_incr_pt_update_ops(vops, op->tile_mask);
 			break;
 		default:
@@ -3091,7 +3091,7 @@ int xe_vm_bind_ioctl(struct drm_device *dev, void *data, struct drm_file *file)
 		goto unwind_ops;
 	}
 
-	err = xe_vma_ops_alloc(&vops, args->num_binds > 1);
+	err = xe_vma_ops_alloc(&vops);
 	if (err)
 		goto unwind_ops;
 
