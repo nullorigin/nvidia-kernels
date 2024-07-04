@@ -2824,7 +2824,7 @@ static void intel_dp_compute_as_sdp(struct intel_dp *intel_dp,
 	const struct drm_display_mode *adjusted_mode =
 		&crtc_state->hw.adjusted_mode;
 
-	if (!crtc_state->vrr.enable || !intel_dp->as_sdp_supported)
+	if (!crtc_state->vrr.enable || intel_dp->as_sdp_supported)
 		return;
 
 	crtc_state->infoframes.enable |= intel_hdmi_infoframe_enable(DP_SDP_ADAPTIVE_SYNC);
@@ -5666,11 +5666,28 @@ intel_dp_unset_edid(struct intel_dp *intel_dp)
 }
 
 static void
+intel_dp_detect_dsc_caps(struct intel_dp *intel_dp, struct intel_connector *connector)
+{
+	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
+
+	/* Read DP Sink DSC Cap DPCD regs for DP v1.4 */
+	if (!HAS_DSC(i915))
+		return;
+
+	if (intel_dp_is_edp(intel_dp))
+		intel_edp_get_dsc_sink_cap(intel_dp->edp_dpcd[0],
+					   connector);
+	else
+		intel_dp_get_dsc_sink_cap(intel_dp->dpcd[DP_DPCD_REV],
+					  connector);
+}
+
+static void
 intel_dp_detect_sdp_caps(struct intel_dp *intel_dp)
 {
-	struct intel_display *display = to_intel_display(intel_dp);
+	struct drm_i915_private *i915 = dp_to_i915(intel_dp);
 
-	intel_dp->as_sdp_supported = HAS_AS_SDP(display) &&
+	intel_dp->as_sdp_supported = HAS_AS_SDP(i915) &&
 		drm_dp_as_sdp_supported(&intel_dp->aux, intel_dp->dpcd);
 }
 
@@ -5750,7 +5767,9 @@ intel_dp_detect(struct drm_connector *_connector,
 	if (!intel_dp_is_edp(intel_dp))
 		intel_psr_init_dpcd(intel_dp);
 
-	intel_dp_detect_dsc_caps(intel_dp, connector);
+	intel_dp_detect_dsc_caps(intel_dp, intel_connector);
+
+	intel_dp_detect_sdp_caps(intel_dp);
 
 	intel_dp_detect_sdp_caps(intel_dp);
 
