@@ -1712,14 +1712,14 @@ static void icl_display_core_init(struct intel_display *display,
 			     DCPR_MASK_LPMODE | DCPR_MASK_MAXLATENCY_MEMUP_CLR);
 
 	/* Wa_14011503030:xelpd */
-	if (DISPLAY_VER(display) == 13)
-		intel_de_write(display, XELPD_DISPLAY_ERR_FATAL_MASK, ~0);
+	if (DISPLAY_VER(dev_priv) == 13)
+		intel_de_write(dev_priv, XELPD_DISPLAY_ERR_FATAL_MASK, ~0);
 
 	/* Wa_15013987218 */
-	if (DISPLAY_VER(display) == 20) {
-		intel_de_rmw(display, SOUTH_DSPCLK_GATE_D,
+	if (DISPLAY_VER(dev_priv) == 20) {
+		intel_de_rmw(dev_priv, SOUTH_DSPCLK_GATE_D,
 			     0, PCH_GMBUSUNIT_CLOCK_GATE_DISABLE);
-		intel_de_rmw(display, SOUTH_DSPCLK_GATE_D,
+		intel_de_rmw(dev_priv, SOUTH_DSPCLK_GATE_D,
 			     PCH_GMBUSUNIT_CLOCK_GATE_DISABLE, 0);
 	}
 }
