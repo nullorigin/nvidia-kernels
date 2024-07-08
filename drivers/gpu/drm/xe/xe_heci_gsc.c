@@ -92,7 +92,7 @@ void xe_heci_gsc_fini(struct xe_device *xe)
 {
 	struct xe_heci_gsc *heci_gsc = &xe->heci_gsc;
 
-	if (!xe->info.has_heci_gscfi && !xe->info.has_heci_cscfi)
+	if (!HAS_HECI_GSCFI(xe) && !HAS_HECI_CSCFI(xe))
 		return;
 
 	if (heci_gsc->adev) {
@@ -177,7 +177,7 @@ void xe_heci_gsc_init(struct xe_device *xe)
 	const struct heci_gsc_def *def;
 	int ret;
 
-	if (!xe->info.has_heci_gscfi && !xe->info.has_heci_cscfi)
+	if (!HAS_HECI_GSCFI(xe) && !HAS_HECI_CSCFI(xe))
 		return;
 
 	heci_gsc->irq = -1;
@@ -242,7 +242,7 @@ void xe_heci_csc_irq_handler(struct xe_device *xe, u32 iir)
 	if ((iir & CSC_IRQ_INTF(1)) == 0)
 		return;
 
-	if (!xe->info.has_heci_cscfi) {
+	if (!HAS_HECI_CSCFI(xe)) {
 		drm_warn_once(&xe->drm, "CSC irq: not supported");
 		return;
 	}
