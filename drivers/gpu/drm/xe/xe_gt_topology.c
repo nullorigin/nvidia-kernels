@@ -247,7 +247,7 @@ static const char *eu_type_to_str(enum xe_gt_eu_type eu_type)
 		return "simd8";
 	}
 
-	return NULL;
+	unreachable();
 }
 
 void
