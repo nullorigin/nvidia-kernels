@@ -118,12 +118,6 @@ struct cs_etm_queue {
 	struct cs_etm_traceid_queue **traceid_queues;
 	/* Conversion between traceID and metadata pointers */
 	struct intlist *traceid_list;
-	/*
-	 * Same as traceid_list, but traceid_list may be a reference to another
-	 * queue's which has a matching sink ID.
-	 */
-	struct intlist *own_traceid_list;
-	u32 sink_id;
 };
 
 static int cs_etm__process_timestamped_queues(struct cs_etm_auxtrace *etm);
@@ -248,16 +242,7 @@ static int cs_etm__insert_trace_id_node(struct cs_etm_queue *etmq,
 		int err;
 
 		if (curr_cpu_data[CS_ETM_CPU] != cpu_metadata[CS_ETM_CPU]) {
-			/*
-			 * With > CORESIGHT_TRACE_IDS_MAX ETMs, overlapping IDs
-			 * are expected (but not supported) in per-thread mode,
-			 * rather than signifying an error.
-			 */
-			if (etmq->etm->per_thread_decoding)
-				pr_err("CS_ETM: overlapping Trace IDs aren't currently supported in per-thread mode\n");
-			else
-				pr_err("CS_ETM: map mismatch between HW_ID packet CPU and Trace ID\n");
-
+			pr_err("CS_ETM: map mismatch between HW_ID packet CPU and Trace ID\n");
 			return -EINVAL;
 		}
 
@@ -340,64 +325,6 @@ static int cs_etm__process_trace_id_v0(struct cs_etm_auxtrace *etm, int cpu,
 	 * the correct trace ID into the metadata for setting up decoders later.
 	 */
 	return cs_etm__metadata_set_trace_id(trace_chan_id, cpu_data);
-}
-
-static int cs_etm__process_trace_id_v0_1(struct cs_etm_auxtrace *etm, int cpu,
-					 u64 hw_id)
-{
-	struct cs_etm_queue *etmq = cs_etm__get_queue(etm, cpu);
-	int ret;
-	u64 *cpu_data;
-	u32 sink_id = FIELD_GET(CS_AUX_HW_ID_SINK_ID_MASK, hw_id);
-	u8 trace_id = FIELD_GET(CS_AUX_HW_ID_TRACE_ID_MASK, hw_id);
-
-	/*
-	 * Check sink id hasn't changed in per-cpu mode. In per-thread mode,
-	 * let it pass for now until an actual overlapping trace ID is hit. In
-	 * most cases IDs won't overlap even if the sink changes.
-	 */
-	if (!etmq->etm->per_thread_decoding && etmq->sink_id != SINK_UNSET &&
-	    etmq->sink_id != sink_id) {
-		pr_err("CS_ETM: mismatch between sink IDs\n");
-		return -EINVAL;
-	}
-
-	etmq->sink_id = sink_id;
-
-	/* Find which other queues use this sink and link their ID maps */
-	for (unsigned int i = 0; i < etm->queues.nr_queues; ++i) {
-		struct cs_etm_queue *other_etmq = etm->queues.queue_array[i].priv;
-
-		/* Different sinks, skip */
-		if (other_etmq->sink_id != etmq->sink_id)
-			continue;
-
-		/* Already linked, skip */
-		if (other_etmq->traceid_list == etmq->traceid_list)
-			continue;
-
-		/* At the point of first linking, this one should be empty */
-		if (!intlist__empty(etmq->traceid_list)) {
-			pr_err("CS_ETM: Can't link populated trace ID lists\n");
-			return -EINVAL;
-		}
-
-		etmq->own_traceid_list = NULL;
-		intlist__delete(etmq->traceid_list);
-		etmq->traceid_list = other_etmq->traceid_list;
-		break;
-	}
-
-	cpu_data = get_cpu_data(etm, cpu);
-	ret = cs_etm__insert_trace_id_node(etmq, trace_id, cpu_data);
-	if (ret)
-		return ret;
-
-	ret = cs_etm__metadata_set_trace_id(trace_id, cpu_data);
-	if (ret)
-		return ret;
-
-	return 0;
 }
 
 static int cs_etm__metadata_get_trace_id(u8 *trace_chan_id, u64 *cpu_metadata)
@@ -488,7 +415,7 @@ static int cs_etm__process_aux_output_hw_id(struct perf_session *session,
 
 	/* extract and parse the HW ID */
 	hw_id = event->aux_output_hw_id.hw_id;
-	version = FIELD_GET(CS_AUX_HW_ID_MAJOR_VERSION_MASK, hw_id);
+	version = FIELD_GET(CS_AUX_HW_ID_VERSION_MASK, hw_id);
 
 	/* check that we can handle this version */
 	if (version > CS_AUX_HW_ID_MAJOR_VERSION) {
@@ -516,10 +443,7 @@ static int cs_etm__process_aux_output_hw_id(struct perf_session *session,
 		return -EINVAL;
 	}
 
-	if (FIELD_GET(CS_AUX_HW_ID_MINOR_VERSION_MASK, hw_id) == 0)
-		return cs_etm__process_trace_id_v0(etm, cpu, hw_id);
-
-	return cs_etm__process_trace_id_v0_1(etm, cpu, hw_id);
+	return cs_etm__process_trace_id_v0(etm, cpu, hw_id);
 }
 
 void cs_etm__etmq_set_traceid_queue_timestamp(struct cs_etm_queue *etmq,
@@ -979,14 +903,12 @@ static void cs_etm__free_queue(void *priv)
 	cs_etm_decoder__free(etmq->decoder);
 	cs_etm__free_traceid_queues(etmq);
 
-	if (etmq->own_traceid_list) {
-		/* First remove all traceID/metadata nodes for the RB tree */
-		intlist__for_each_entry_safe(inode, tmp, etmq->own_traceid_list)
-			intlist__remove(etmq->own_traceid_list, inode);
+	/* First remove all traceID/metadata nodes for the RB tree */
+	intlist__for_each_entry_safe(inode, tmp, etmq->traceid_list)
+		intlist__remove(etmq->traceid_list, inode);
 
-		/* Then the RB tree itself */
-		intlist__delete(etmq->own_traceid_list);
-	}
+	/* Then the RB tree itself */
+	intlist__delete(etmq->traceid_list);
 
 	free(etmq);
 }
@@ -1173,9 +1095,24 @@ static struct cs_etm_queue *cs_etm__alloc_queue(void)
 
 	etmq->traceid_queues_list = intlist__new(NULL);
 	if (!etmq->traceid_queues_list)
-		free(etmq);
+		goto out_free;
+
+	/*
+	 * Create an RB tree for traceID-metadata tuple.  Since the conversion
+	 * has to be made for each packet that gets decoded, optimizing access
+	 * in anything other than a sequential array is worth doing.
+	 */
+	etmq->traceid_list = intlist__new(NULL);
+	if (!etmq->traceid_list)
+		goto out_free;
 
 	return etmq;
+
+out_free:
+	intlist__delete(etmq->traceid_queues_list);
+	free(etmq);
+
+	return NULL;
 }
 
 static int cs_etm__setup_queue(struct cs_etm_auxtrace *etm,
@@ -3560,12 +3497,15 @@ int cs_etm__process_auxtrace_info_full(union perf_event *event,
 	if (err)
 		goto err_free_queues;
 
-	/* if no HW ID found this is a file with metadata values only, map from metadata */
-	if (!aux_hw_id_found) {
+	/* if HW ID found then clear any unused metadata ID values */
+	if (aux_hw_id_found)
+		err = cs_etm__clear_unused_trace_ids_metadata(num_cpu, metadata);
+	/* otherwise, this is a file with metadata values only, map from metadata */
+	else
 		err = cs_etm__map_trace_ids_metadata(etm, num_cpu, metadata);
-		if (err)
-			goto err_free_queues;
-	}
+
+	if (err)
+		goto err_free_queues;
 
 	err = cs_etm__create_decoders(etm);
 	if (err)
