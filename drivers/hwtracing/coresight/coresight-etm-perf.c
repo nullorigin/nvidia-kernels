@@ -232,16 +232,7 @@ static void free_event_data(struct work_struct *work)
 		if (!(IS_ERR_OR_NULL(*ppath))) {
 			struct coresight_device *sink = coresight_get_sink(*ppath);
 
-			/*
-			 * Mark perf event as done for trace id allocator, but don't call
-			 * coresight_trace_id_put_cpu_id_map() on individual IDs. Perf sessions
-			 * never free trace IDs to ensure that the ID associated with a CPU
-			 * cannot change during their and other's concurrent sessions. Instead,
-			 * a refcount is used so that the last event to call
-			 * coresight_trace_id_perf_stop() frees all IDs.
-			 */
-			coresight_trace_id_perf_stop(&sink->perf_sink_id_map);
-
+			coresight_trace_id_put_cpu_id_map(cpu, &sink->perf_sink_id_map);
 			coresight_release_path(*ppath);
 		}
 		*ppath = NULL;
@@ -513,16 +504,11 @@ static void etm_event_start(struct perf_event *event, int flags)
 	 */
 	if (!cpumask_test_cpu(cpu, &event_data->aux_hwid_done)) {
 		cpumask_set_cpu(cpu, &event_data->aux_hwid_done);
-
-		trace_id = coresight_trace_id_read_cpu_id_map(cpu, &sink->perf_sink_id_map);
-
-		hw_id = FIELD_PREP(CS_AUX_HW_ID_MAJOR_VERSION_MASK,
-				CS_AUX_HW_ID_MAJOR_VERSION);
-		hw_id |= FIELD_PREP(CS_AUX_HW_ID_MINOR_VERSION_MASK,
-				CS_AUX_HW_ID_MINOR_VERSION);
-		hw_id |= FIELD_PREP(CS_AUX_HW_ID_TRACE_ID_MASK, trace_id);
-		hw_id |= FIELD_PREP(CS_AUX_HW_ID_SINK_ID_MASK, coresight_get_sink_id(sink));
-
+		hw_id = FIELD_PREP(CS_AUX_HW_ID_VERSION_MASK,
+				   CS_AUX_HW_ID_CURR_VERSION);
+		hw_id |= FIELD_PREP(CS_AUX_HW_ID_TRACE_ID_MASK,
+				    coresight_trace_id_read_cpu_id_map(cpu,
+								       &sink->perf_sink_id_map));
 		perf_report_aux_output_id(event, hw_id);
 	}
 
