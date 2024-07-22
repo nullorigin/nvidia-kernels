@@ -816,14 +816,27 @@ static void cs_etm__set_trace_param_ete(struct cs_etm_trace_params *t_params,
 }
 
 static int cs_etm__init_trace_params(struct cs_etm_trace_params *t_params,
-				     struct cs_etm_queue *etmq)
+				     struct cs_etm_auxtrace *etm,
+				     enum cs_etm_format format,
+				     int sample_cpu,
+				     int decoders)
 {
-	struct int_node *inode;
+	int t_idx, m_idx;
+	u32 etmidr;
+	u64 architecture;
 
-	intlist__for_each_entry(inode, etmq->traceid_list) {
-		u64 *metadata = inode->priv;
-		u64 architecture = metadata[CS_ETM_MAGIC];
-		u32 etmidr;
+	for (t_idx = 0; t_idx < decoders; t_idx++) {
+		if (format == FORMATTED)
+			m_idx = t_idx;
+		else {
+			m_idx = get_cpu_data_idx(etm, sample_cpu);
+			if (m_idx == -1) {
+				pr_warning("CS_ETM: unknown CPU, falling back to first metadata\n");
+				m_idx = 0;
+			}
+		}
+
+		architecture = etm->metadata[m_idx][CS_ETM_MAGIC];
 
 		switch (architecture) {
 		case __perf_cs_etmv3_magic:
@@ -1160,33 +1173,23 @@ static struct cs_etm_queue *cs_etm__alloc_queue(void)
 
 	etmq->traceid_queues_list = intlist__new(NULL);
 	if (!etmq->traceid_queues_list)
-		goto out_free;
-
-	/*
-	 * Create an RB tree for traceID-metadata tuple.  Since the conversion
-	 * has to be made for each packet that gets decoded, optimizing access
-	 * in anything other than a sequential array is worth doing.
-	 */
-	etmq->traceid_list = etmq->own_traceid_list = intlist__new(NULL);
-	if (!etmq->traceid_list)
-		goto out_free;
+		free(etmq);
 
 	return etmq;
-
-out_free:
-	intlist__delete(etmq->traceid_queues_list);
-	free(etmq);
-
-	return NULL;
 }
 
 static int cs_etm__setup_queue(struct cs_etm_auxtrace *etm,
 			       struct auxtrace_queue *queue,
-			       unsigned int queue_nr)
+			       unsigned int queue_nr, enum cs_etm_format format)
 {
 	struct cs_etm_queue *etmq = queue->priv;
 
-	if (etmq)
+	if (etmq && format != etmq->format) {
+		pr_err("CS_ETM: mixed formatted and unformatted trace not supported\n");
+		return -EINVAL;
+	}
+
+	if (list_empty(&queue->head) || etmq)
 		return 0;
 
 	etmq = cs_etm__alloc_queue();
@@ -1199,7 +1202,7 @@ static int cs_etm__setup_queue(struct cs_etm_auxtrace *etm,
 	etmq->queue_nr = queue_nr;
 	queue->cpu = queue_nr; /* Placeholder, may be reset to -1 in per-thread mode */
 	etmq->offset = 0;
-	etmq->sink_id = SINK_UNSET;
+	etmq->format = format;
 
 	return 0;
 }
@@ -2898,6 +2901,17 @@ static int cs_etm__process_auxtrace_event(struct perf_session *session,
 		if (err)
 			return err;
 
+		/*
+		 * Knowing if the trace is formatted or not requires a lookup of
+		 * the aux record so only works in non-piped mode where data is
+		 * queued in cs_etm__queue_aux_records(). Always assume
+		 * formatted in piped mode (true).
+		 */
+		err = cs_etm__setup_queue(etm, &etm->queues.queue_array[idx],
+					  idx, FORMATTED);
+		if (err)
+			return err;
+
 		if (dump_trace)
 			if (auxtrace_buffer__get_data(buffer, fd)) {
 				cs_etm__dump_event(etm->queues.queue_array[idx].priv, buffer);
@@ -3014,6 +3028,7 @@ static int cs_etm__queue_aux_fragment(struct perf_session *session, off_t file_o
 	struct perf_record_auxtrace *auxtrace_event;
 	union perf_event auxtrace_fragment;
 	__u64 aux_offset, aux_size;
+	__u32 idx;
 	enum cs_etm_format format;
 
 	struct cs_etm_auxtrace *etm = container_of(session->auxtrace,
@@ -3098,14 +3113,11 @@ static int cs_etm__queue_aux_fragment(struct perf_session *session, off_t file_o
 		if (err)
 			return err;
 
+		idx = auxtrace_event->idx;
 		format = (aux_event->flags & PERF_AUX_FLAG_CORESIGHT_FORMAT_RAW) ?
 				UNFORMATTED : FORMATTED;
-		if (etmq->format != UNSET && format != etmq->format) {
-			pr_err("CS_ETM: mixed formatted and unformatted trace not supported\n");
-			return -EINVAL;
-		}
-		etmq->format = format;
-		return 0;
+
+		return cs_etm__setup_queue(etm, &etm->queues.queue_array[idx], idx, format);
 	}
 
 	/* Wasn't inside this buffer, but there were no parse errors. 1 == 'not found' */
@@ -3265,29 +3277,53 @@ static int cs_etm__map_trace_ids_metadata(struct cs_etm_auxtrace *etm, int num_c
  * Use the data gathered by the peeks for HW_ID (trace ID mappings) and AUX
  * (formatted or not) packets to create the decoders.
  */
+static int cs_etm__clear_unused_trace_ids_metadata(int num_cpu, u64 **metadata)
+{
+	u64 cs_etm_magic;
+	int i;
+
+	for (i = 0; i < num_cpu; i++) {
+		cs_etm_magic = metadata[i][CS_ETM_MAGIC];
+		switch (cs_etm_magic) {
+		case __perf_cs_etmv3_magic:
+			if (metadata[i][CS_ETM_ETMTRACEIDR] & CORESIGHT_TRACE_ID_UNUSED_FLAG)
+				metadata[i][CS_ETM_ETMTRACEIDR] = CORESIGHT_TRACE_ID_UNUSED_VAL;
+			break;
+		case __perf_cs_etmv4_magic:
+		case __perf_cs_ete_magic:
+			if (metadata[i][CS_ETMV4_TRCTRACEIDR] & CORESIGHT_TRACE_ID_UNUSED_FLAG)
+				metadata[i][CS_ETMV4_TRCTRACEIDR] = CORESIGHT_TRACE_ID_UNUSED_VAL;
+			break;
+		default:
+			/* unknown magic number */
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
+/*
+ * Use the data gathered by the peeks for HW_ID (trace ID mappings) and AUX
+ * (formatted or not) packets to create the decoders.
+ */
 static int cs_etm__create_queue_decoders(struct cs_etm_queue *etmq)
 {
 	struct cs_etm_decoder_params d_params;
-	struct cs_etm_trace_params  *t_params;
-	int decoders = intlist__nr_entries(etmq->traceid_list);
-
-	if (decoders == 0)
-		return 0;
 
 	/*
 	 * Each queue can only contain data from one CPU when unformatted, so only one decoder is
 	 * needed.
 	 */
-	if (etmq->format == UNFORMATTED)
-		assert(decoders == 1);
+	int decoders = etmq->format == FORMATTED ? etmq->etm->num_cpu : 1;
 
 	/* Use metadata to fill in trace parameters for trace decoder */
-	t_params = zalloc(sizeof(*t_params) * decoders);
+	struct cs_etm_trace_params  *t_params = zalloc(sizeof(*t_params) * decoders);
 
 	if (!t_params)
 		goto out_free;
 
-	if (cs_etm__init_trace_params(t_params, etmq))
+	if (cs_etm__init_trace_params(t_params, etmq->etm, etmq->format,
+				      etmq->queue_nr, decoders))
 		goto out_free;
 
 	/* Set decoder parameters to decode trace packets */
@@ -3334,7 +3370,6 @@ static int cs_etm__create_decoders(struct cs_etm_auxtrace *etm)
 		 * Don't create decoders for empty queues, mainly because
 		 * etmq->format is unknown for empty queues.
 		 */
-		assert(empty || etmq->format != UNSET);
 		if (empty)
 			continue;
 
