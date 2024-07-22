@@ -232,7 +232,16 @@ static void free_event_data(struct work_struct *work)
 		if (!(IS_ERR_OR_NULL(*ppath))) {
 			struct coresight_device *sink = coresight_get_sink(*ppath);
 
-			coresight_trace_id_put_cpu_id_map(cpu, &sink->perf_sink_id_map);
+			/*
+			 * Mark perf event as done for trace id allocator, but don't call
+			 * coresight_trace_id_put_cpu_id_map() on individual IDs. Perf sessions
+			 * never free trace IDs to ensure that the ID associated with a CPU
+			 * cannot change during their and other's concurrent sessions. Instead,
+			 * a refcount is used so that the last event to call
+			 * coresight_trace_id_perf_stop() frees all IDs.
+			 */
+			coresight_trace_id_perf_stop(&sink->perf_sink_id_map);
+
 			coresight_release_path(*ppath);
 		}
 		*ppath = NULL;
