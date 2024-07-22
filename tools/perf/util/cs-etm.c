@@ -740,27 +740,14 @@ static void cs_etm__set_trace_param_ete(struct cs_etm_trace_params *t_params,
 }
 
 static int cs_etm__init_trace_params(struct cs_etm_trace_params *t_params,
-				     struct cs_etm_auxtrace *etm,
-				     enum cs_etm_format format,
-				     int sample_cpu,
-				     int decoders)
+				     struct cs_etm_queue *etmq)
 {
-	int t_idx, m_idx;
-	u32 etmidr;
-	u64 architecture;
+	struct int_node *inode;
 
-	for (t_idx = 0; t_idx < decoders; t_idx++) {
-		if (format == FORMATTED)
-			m_idx = t_idx;
-		else {
-			m_idx = get_cpu_data_idx(etm, sample_cpu);
-			if (m_idx == -1) {
-				pr_warning("CS_ETM: unknown CPU, falling back to first metadata\n");
-				m_idx = 0;
-			}
-		}
-
-		architecture = etm->metadata[m_idx][CS_ETM_MAGIC];
+	intlist__for_each_entry(inode, etmq->traceid_list) {
+		u64 *metadata = inode->priv;
+		u64 architecture = metadata[CS_ETM_MAGIC];
+		u32 etmidr;
 
 		switch (architecture) {
 		case __perf_cs_etmv3_magic:
@@ -3199,53 +3186,29 @@ static int cs_etm__map_trace_ids_metadata(struct cs_etm_auxtrace *etm, int num_c
  * Use the data gathered by the peeks for HW_ID (trace ID mappings) and AUX
  * (formatted or not) packets to create the decoders.
  */
-static int cs_etm__clear_unused_trace_ids_metadata(int num_cpu, u64 **metadata)
-{
-	u64 cs_etm_magic;
-	int i;
-
-	for (i = 0; i < num_cpu; i++) {
-		cs_etm_magic = metadata[i][CS_ETM_MAGIC];
-		switch (cs_etm_magic) {
-		case __perf_cs_etmv3_magic:
-			if (metadata[i][CS_ETM_ETMTRACEIDR] & CORESIGHT_TRACE_ID_UNUSED_FLAG)
-				metadata[i][CS_ETM_ETMTRACEIDR] = CORESIGHT_TRACE_ID_UNUSED_VAL;
-			break;
-		case __perf_cs_etmv4_magic:
-		case __perf_cs_ete_magic:
-			if (metadata[i][CS_ETMV4_TRCTRACEIDR] & CORESIGHT_TRACE_ID_UNUSED_FLAG)
-				metadata[i][CS_ETMV4_TRCTRACEIDR] = CORESIGHT_TRACE_ID_UNUSED_VAL;
-			break;
-		default:
-			/* unknown magic number */
-			return -EINVAL;
-		}
-	}
-	return 0;
-}
-
-/*
- * Use the data gathered by the peeks for HW_ID (trace ID mappings) and AUX
- * (formatted or not) packets to create the decoders.
- */
 static int cs_etm__create_queue_decoders(struct cs_etm_queue *etmq)
 {
 	struct cs_etm_decoder_params d_params;
+	struct cs_etm_trace_params  *t_params;
+	int decoders = intlist__nr_entries(etmq->traceid_list);
+
+	if (decoders == 0)
+		return 0;
 
 	/*
 	 * Each queue can only contain data from one CPU when unformatted, so only one decoder is
 	 * needed.
 	 */
-	int decoders = etmq->format == FORMATTED ? etmq->etm->num_cpu : 1;
+	if (etmq->format == UNFORMATTED)
+		assert(decoders == 1);
 
 	/* Use metadata to fill in trace parameters for trace decoder */
-	struct cs_etm_trace_params  *t_params = zalloc(sizeof(*t_params) * decoders);
+	t_params = zalloc(sizeof(*t_params) * decoders);
 
 	if (!t_params)
 		goto out_free;
 
-	if (cs_etm__init_trace_params(t_params, etmq->etm, etmq->format,
-				      etmq->queue_nr, decoders))
+	if (cs_etm__init_trace_params(t_params, etmq))
 		goto out_free;
 
 	/* Set decoder parameters to decode trace packets */
@@ -3497,15 +3460,12 @@ int cs_etm__process_auxtrace_info_full(union perf_event *event,
 	if (err)
 		goto err_free_queues;
 
-	/* if HW ID found then clear any unused metadata ID values */
-	if (aux_hw_id_found)
-		err = cs_etm__clear_unused_trace_ids_metadata(num_cpu, metadata);
-	/* otherwise, this is a file with metadata values only, map from metadata */
-	else
+	/* if no HW ID found this is a file with metadata values only, map from metadata */
+	if (!aux_hw_id_found) {
 		err = cs_etm__map_trace_ids_metadata(etm, num_cpu, metadata);
-
-	if (err)
-		goto err_free_queues;
+		if (err)
+			goto err_free_queues;
+	}
 
 	err = cs_etm__create_decoders(etm);
 	if (err)
