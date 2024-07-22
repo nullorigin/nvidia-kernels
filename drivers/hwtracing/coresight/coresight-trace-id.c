@@ -12,18 +12,18 @@
 
 #include "coresight-trace-id.h"
 
-enum trace_id_flags {
-	TRACE_ID_ANY = 0x0,
-	TRACE_ID_PREFER_ODD = 0x1,
-	TRACE_ID_REQ_STATIC = 0x2,
-};
-
 /* Default trace ID map. Used in sysfs mode and for system sources */
-static DEFINE_PER_CPU(atomic_t, id_map_default_cpu_ids) = ATOMIC_INIT(0);
-static struct coresight_trace_id_map id_map_default = {
-	.cpu_map = &id_map_default_cpu_ids,
-	.lock = __SPIN_LOCK_UNLOCKED(id_map_default.lock)
-};
+static struct coresight_trace_id_map id_map_default;
+
+/* maintain a record of the mapping of IDs and pending releases per cpu */
+static DEFINE_PER_CPU(atomic_t, cpu_id) = ATOMIC_INIT(0);
+static cpumask_t cpu_id_release_pending;
+
+/* perf session active counter */
+static atomic_t perf_cs_etm_session_active = ATOMIC_INIT(0);
+
+/* lock to protect id_map and cpu data  */
+static DEFINE_SPINLOCK(id_map_lock);
 
 /* #define TRACE_ID_DEBUG 1 */
 #if defined(TRACE_ID_DEBUG) || defined(CONFIG_COMPILE_TEST)
