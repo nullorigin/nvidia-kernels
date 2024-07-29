@@ -11,7 +11,6 @@
 struct drm_printer;
 struct drm_xe_engine_class_instance;
 struct xe_device;
-struct xe_exec_queue;
 
 #ifdef CONFIG_DRM_XE_JOB_TIMEOUT_MIN
 #define XE_HW_ENGINE_JOB_TIMEOUT_MIN CONFIG_DRM_XE_JOB_TIMEOUT_MIN

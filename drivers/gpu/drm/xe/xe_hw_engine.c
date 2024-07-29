@@ -8,7 +8,7 @@
 #include <linux/nospec.h>
 
 #include <drm/drm_managed.h>
-#include <uapi/drm/xe_drm.h>
+#include <drm/xe_drm.h>
 
 #include "regs/xe_engine_regs.h"
 #include "regs/xe_gt_regs.h"
@@ -999,23 +999,13 @@ static const enum xe_engine_class user_to_xe_engine_class[] = {
 	[DRM_XE_ENGINE_CLASS_COMPUTE] = XE_ENGINE_CLASS_COMPUTE,
 };
 
-/**
- * xe_hw_engine_lookup() - Lookup hardware engine for class:instance
- * @xe: xe device
- * @eci: engine class and instance
- *
- * This function will find a hardware engine for given engine
- * class and instance.
- *
- * Return: If found xe_hw_engine pointer, NULL otherwise.
- */
 struct xe_hw_engine *
 xe_hw_engine_lookup(struct xe_device *xe,
 		    struct drm_xe_engine_class_instance eci)
 {
 	unsigned int idx;
 
-	if (eci.engine_class >= ARRAY_SIZE(user_to_xe_engine_class))
+	if (eci.engine_class > ARRAY_SIZE(user_to_xe_engine_class))
 		return NULL;
 
 	if (eci.gt_id >= xe->info.gt_count)
