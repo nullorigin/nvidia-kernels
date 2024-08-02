@@ -401,6 +401,7 @@ void do_secure_storage_access(struct pt_regs *regs)
 	struct folio_walk fw;
 	struct mm_struct *mm;
 	struct folio *folio;
+	struct gmap *gmap;
 	int rc;
 
 	/*
@@ -446,6 +447,17 @@ void do_secure_storage_access(struct pt_regs *regs)
 		}
 		/* arch_make_folio_accessible() needs a raised refcount. */
 		folio_get(folio);
+		rc = arch_make_folio_accessible(folio);
+		folio_put(folio);
+		folio_walk_end(&fw, vma);
+		if (rc)
+			send_sig(SIGSEGV, current, 0);
+		mmap_read_unlock(mm);
+		break;
+	case KERNEL_FAULT:
+		folio = phys_to_folio(addr);
+		if (unlikely(!folio_try_get(folio)))
+			break;
 		rc = arch_make_folio_accessible(folio);
 		folio_put(folio);
 		folio_walk_end(&fw, vma);
