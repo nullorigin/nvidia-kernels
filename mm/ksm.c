@@ -2560,7 +2560,7 @@ next_mm:
 					ksm_scan.rmap_list =
 							&rmap_item->rmap_list;
 
-					if (should_skip_rmap_item(folio, rmap_item)) {
+					if (should_skip_rmap_item(tmp_page, rmap_item)) {
 						folio_put(folio);
 						goto next_page;
 					}
