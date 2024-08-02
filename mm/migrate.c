@@ -2232,7 +2232,7 @@ static int __add_folio_for_migration(struct folio *folio, int node,
 		return -EACCES;
 
 	if (folio_test_hugetlb(folio)) {
-		if (folio_isolate_hugetlb(folio, pagelist))
+		if (isolate_hugetlb(folio, pagelist))
 			return 1;
 	} else if (folio_isolate_lru(folio)) {
 		list_add_tail(&folio->lru, pagelist);
