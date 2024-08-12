@@ -46,26 +46,16 @@
  */
 
 #include <linux/cpumask.h>
-#include <linux/debugfs.h>
-#include <linux/device.h>
 #include <linux/kernel_stat.h>
-#include <linux/kstrtox.h>
 #include <linux/ktime.h>
-#include <linux/sysctl.h>
-#include <linux/types.h>
 #include <linux/workqueue.h>
 #include <asm/hiperdispatch.h>
-#include <asm/setup.h>
 #include <asm/smp.h>
 #include <asm/topology.h>
-
-#define CREATE_TRACE_POINTS
-#include <asm/trace/hiperdispatch.h>
 
 #define HD_DELAY_FACTOR			(4)
 #define HD_DELAY_INTERVAL		(HZ / 4)
 #define HD_STEAL_THRESHOLD		30
-#define HD_STEAL_AVG_WEIGHT		16
 
 static cpumask_t hd_vl_coremask;	/* Mask containing all vertical low COREs */
 static cpumask_t hd_vmvl_cpumask;	/* Mask containing vertical medium and low CPUs */
@@ -74,26 +64,9 @@ static int hd_entitled_cores;		/* Total vertical high and medium CORE count */
 static int hd_online_cores;		/* Current online CORE count */
 
 static unsigned long hd_previous_steal;	/* Previous iteration's CPU steal timer total */
-static unsigned long hd_high_time;	/* Total time spent while all cpus have high capacity */
-static unsigned long hd_low_time;	/* Total time spent while vl cpus have low capacity */
-static atomic64_t hd_adjustments;	/* Total occurrence count of hiperdispatch adjustments */
-
-static unsigned int hd_steal_threshold = HD_STEAL_THRESHOLD;
-static unsigned int hd_delay_factor = HD_DELAY_FACTOR;
-static int hd_enabled;
 
 static void hd_capacity_work_fn(struct work_struct *work);
 static DECLARE_DELAYED_WORK(hd_capacity_work, hd_capacity_work_fn);
-
-static int hd_set_hiperdispatch_mode(int enable)
-{
-	if (!MACHINE_HAS_TOPOLOGY)
-		enable = 0;
-	if (hd_enabled == enable)
-		return 0;
-	hd_enabled = enable;
-	return 1;
-}
 
 void hd_reset_state(void)
 {
@@ -126,33 +99,6 @@ void hd_add_core(int cpu)
 	}
 }
 
-/* Serialize update and read operations of debug counters. */
-static DEFINE_MUTEX(hd_counter_mutex);
-
-static void hd_update_times(void)
-{
-	static ktime_t prev;
-	ktime_t now;
-
-	/*
-	 * Check if hiperdispatch is active, if not set the prev to 0.
-	 * This way it is possible to differentiate the first update iteration after
-	 * enabling hiperdispatch.
-	 */
-	if (hd_entitled_cores == 0 || hd_enabled == 0) {
-		prev = ktime_set(0, 0);
-		return;
-	}
-	now = ktime_get();
-	if (ktime_after(prev, 0)) {
-		if (hd_high_capacity_cores == hd_online_cores)
-			hd_high_time += ktime_ms_delta(now, prev);
-		else
-			hd_low_time += ktime_ms_delta(now, prev);
-	}
-	prev = now;
-}
-
 static void hd_update_capacities(void)
 {
 	int cpu, upscaling_cores;
@@ -181,26 +127,13 @@ void hd_disable_hiperdispatch(void)
 
 int hd_enable_hiperdispatch(void)
 {
-	mutex_lock(&hd_counter_mutex);
-	hd_update_times();
-	mutex_unlock(&hd_counter_mutex);
-	if (hd_enabled == 0)
-		return 0;
 	if (hd_entitled_cores == 0)
 		return 0;
 	if (hd_online_cores <= hd_entitled_cores)
 		return 0;
-	mod_delayed_work(system_wq, &hd_capacity_work, HD_DELAY_INTERVAL * hd_delay_factor);
+	mod_delayed_work(system_wq, &hd_capacity_work, HD_DELAY_INTERVAL * HD_DELAY_FACTOR);
 	hd_update_capacities();
 	return 1;
-}
-
-static unsigned long hd_steal_avg(unsigned long new)
-{
-	static unsigned long steal;
-
-	steal = (steal * (HD_STEAL_AVG_WEIGHT - 1) + new) / HD_STEAL_AVG_WEIGHT;
-	return steal;
 }
 
 static unsigned long hd_calculate_steal_percentage(void)
@@ -252,179 +185,15 @@ static void hd_capacity_work_fn(struct work_struct *work)
 		mutex_unlock(&smp_cpu_state_mutex);
 		return;
 	}
-	steal_percentage = hd_steal_avg(hd_calculate_steal_percentage());
-	if (steal_percentage < hd_steal_threshold)
+	steal_percentage = hd_calculate_steal_percentage();
+	if (steal_percentage < HD_STEAL_THRESHOLD)
 		new_cores = hd_online_cores;
 	else
 		new_cores = hd_entitled_cores;
 	if (hd_high_capacity_cores != new_cores) {
-		trace_s390_hd_rebuild_domains(hd_high_capacity_cores, new_cores);
 		hd_high_capacity_cores = new_cores;
-		atomic64_inc(&hd_adjustments);
 		topology_schedule_update();
 	}
-	trace_s390_hd_work_fn(steal_percentage, hd_entitled_cores, hd_high_capacity_cores);
 	mutex_unlock(&smp_cpu_state_mutex);
 	schedule_delayed_work(&hd_capacity_work, HD_DELAY_INTERVAL);
 }
-
-static int hiperdispatch_ctl_handler(const struct ctl_table *ctl, int write,
-				     void *buffer, size_t *lenp, loff_t *ppos)
-{
-	int hiperdispatch;
-	int rc;
-	struct ctl_table ctl_entry = {
-		.procname	= ctl->procname,
-		.data		= &hiperdispatch,
-		.maxlen		= sizeof(int),
-		.extra1		= SYSCTL_ZERO,
-		.extra2		= SYSCTL_ONE,
-	};
-
-	hiperdispatch = hd_enabled;
-	rc = proc_douintvec_minmax(&ctl_entry, write, buffer, lenp, ppos);
-	if (rc < 0 || !write)
-		return rc;
-	mutex_lock(&smp_cpu_state_mutex);
-	if (hd_set_hiperdispatch_mode(hiperdispatch))
-		topology_schedule_update();
-	mutex_unlock(&smp_cpu_state_mutex);
-	return 0;
-}
-
-static const struct ctl_table hiperdispatch_ctl_table[] = {
-	{
-		.procname	= "hiperdispatch",
-		.mode		= 0644,
-		.proc_handler	= hiperdispatch_ctl_handler,
-	},
-};
-
-static ssize_t hd_steal_threshold_show(struct device *dev,
-				       struct device_attribute *attr,
-				       char *buf)
-{
-	return sysfs_emit(buf, "%u\n", hd_steal_threshold);
-}
-
-static ssize_t hd_steal_threshold_store(struct device *dev,
-					struct device_attribute *attr,
-					const char *buf,
-					size_t count)
-{
-	unsigned int val;
-	int rc;
-
-	rc = kstrtouint(buf, 0, &val);
-	if (rc)
-		return rc;
-	if (val > 100)
-		return -ERANGE;
-	hd_steal_threshold = val;
-	return count;
-}
-
-static DEVICE_ATTR_RW(hd_steal_threshold);
-
-static ssize_t hd_delay_factor_show(struct device *dev,
-				    struct device_attribute *attr,
-				    char *buf)
-{
-	return sysfs_emit(buf, "%u\n", hd_delay_factor);
-}
-
-static ssize_t hd_delay_factor_store(struct device *dev,
-				     struct device_attribute *attr,
-				     const char *buf,
-				     size_t count)
-{
-	unsigned int val;
-	int rc;
-
-	rc = kstrtouint(buf, 0, &val);
-	if (rc)
-		return rc;
-	if (!val)
-		return -ERANGE;
-	hd_delay_factor = val;
-	return count;
-}
-
-static DEVICE_ATTR_RW(hd_delay_factor);
-
-static struct attribute *hd_attrs[] = {
-	&dev_attr_hd_steal_threshold.attr,
-	&dev_attr_hd_delay_factor.attr,
-	NULL,
-};
-
-static const struct attribute_group hd_attr_group = {
-	.name  = "hiperdispatch",
-	.attrs = hd_attrs,
-};
-
-static int hd_greedy_time_get(void *unused, u64 *val)
-{
-	mutex_lock(&hd_counter_mutex);
-	hd_update_times();
-	*val = hd_high_time;
-	mutex_unlock(&hd_counter_mutex);
-	return 0;
-}
-
-DEFINE_SIMPLE_ATTRIBUTE(hd_greedy_time_fops, hd_greedy_time_get, NULL, "%llu\n");
-
-static int hd_conservative_time_get(void *unused, u64 *val)
-{
-	mutex_lock(&hd_counter_mutex);
-	hd_update_times();
-	*val = hd_low_time;
-	mutex_unlock(&hd_counter_mutex);
-	return 0;
-}
-
-DEFINE_SIMPLE_ATTRIBUTE(hd_conservative_time_fops, hd_conservative_time_get, NULL, "%llu\n");
-
-static int hd_adjustment_count_get(void *unused, u64 *val)
-{
-	*val = atomic64_read(&hd_adjustments);
-	return 0;
-}
-
-DEFINE_SIMPLE_ATTRIBUTE(hd_adjustments_fops, hd_adjustment_count_get, NULL, "%llu\n");
-
-static void __init hd_create_debugfs_counters(void)
-{
-	struct dentry *dir;
-
-	dir = debugfs_create_dir("hiperdispatch", arch_debugfs_dir);
-	debugfs_create_file("conservative_time_ms", 0400, dir, NULL, &hd_conservative_time_fops);
-	debugfs_create_file("greedy_time_ms", 0400, dir, NULL, &hd_greedy_time_fops);
-	debugfs_create_file("adjustment_count", 0400, dir, NULL, &hd_adjustments_fops);
-}
-
-static void __init hd_create_attributes(void)
-{
-	struct device *dev;
-
-	dev = bus_get_dev_root(&cpu_subsys);
-	if (!dev)
-		return;
-	if (sysfs_create_group(&dev->kobj, &hd_attr_group))
-		pr_warn("Unable to create hiperdispatch attribute group\n");
-	put_device(dev);
-}
-
-static int __init hd_init(void)
-{
-	if (IS_ENABLED(CONFIG_HIPERDISPATCH_ON)) {
-		hd_set_hiperdispatch_mode(1);
-		topology_schedule_update();
-	}
-	if (!register_sysctl("s390", hiperdispatch_ctl_table))
-		pr_warn("Failed to register s390.hiperdispatch sysctl attribute\n");
-	hd_create_debugfs_counters();
-	hd_create_attributes();
-	return 0;
-}
-late_initcall(hd_init);

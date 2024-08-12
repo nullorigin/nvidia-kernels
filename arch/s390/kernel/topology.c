@@ -387,8 +387,6 @@ void topology_expect_change(void)
 	set_topology_timer();
 }
 
-static int cpu_management;
-
 static int set_polarization(int polarization)
 {
 	int rc = 0;
