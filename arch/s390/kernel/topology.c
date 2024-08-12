@@ -387,6 +387,8 @@ void topology_expect_change(void)
 	set_topology_timer();
 }
 
+static int cpu_management;
+
 static int set_polarization(int polarization)
 {
 	int rc = 0;
@@ -667,7 +669,7 @@ static int polarization_ctl_handler(const struct ctl_table *ctl, int write,
 	return set_polarization(polarization);
 }
 
-static const struct ctl_table topology_ctl_table[] = {
+static struct ctl_table topology_ctl_table[] = {
 	{
 		.procname	= "topology",
 		.mode		= 0644,
