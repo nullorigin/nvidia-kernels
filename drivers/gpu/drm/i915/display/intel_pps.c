@@ -997,8 +997,8 @@ void intel_pps_on_unlocked(struct intel_dp *intel_dp)
 	 * WA: 22019252566
 	 * Disable DPLS gating around power sequence.
 	 */
-	if (IS_DISPLAY_VER(display, 13, 14))
-		intel_de_rmw(display, SOUTH_DSPCLK_GATE_D,
+	if (IS_DISPLAY_VER(dev_priv, 13, 14))
+		intel_de_rmw(dev_priv, SOUTH_DSPCLK_GATE_D,
 			     0, PCH_DPLSUNIT_CLOCK_GATE_DISABLE);
 
 	pp |= PANEL_POWER_ON;
@@ -1011,11 +1011,11 @@ void intel_pps_on_unlocked(struct intel_dp *intel_dp)
 	wait_panel_on(intel_dp);
 	intel_dp->pps.last_power_on = jiffies;
 
-	if (IS_DISPLAY_VER(display, 13, 14))
-		intel_de_rmw(display, SOUTH_DSPCLK_GATE_D,
+	if (IS_DISPLAY_VER(dev_priv, 13, 14))
+		intel_de_rmw(dev_priv, SOUTH_DSPCLK_GATE_D,
 			     PCH_DPLSUNIT_CLOCK_GATE_DISABLE, 0);
 
-	if (display->platform.ironlake) {
+	if (IS_IRONLAKE(dev_priv)) {
 		pp |= PANEL_POWER_RESET; /* restore panel reset bit */
 		intel_de_write(display, pp_ctrl_reg, pp);
 		intel_de_posting_read(display, pp_ctrl_reg);
