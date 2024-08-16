@@ -226,6 +226,53 @@ struct xe_exec_queue *xe_exec_queue_create_bind(struct xe_device *xe,
 							   gt->usm.reserved_bcs_instance,
 							   false);
 
+		if (!hwe)
+			return ERR_PTR(-EINVAL);
+
+		q = xe_exec_queue_create(xe, migrate_vm,
+					 BIT(hwe->logical_instance), 1, hwe,
+					 flags, extensions);
+	} else {
+		q = xe_exec_queue_create_class(xe, gt, migrate_vm,
+					       XE_ENGINE_CLASS_COPY, flags,
+					       extensions);
+	}
+	xe_vm_put(migrate_vm);
+
+	return q;
+}
+
+/**
+ * xe_exec_queue_create_bind() - Create bind exec queue.
+ * @xe: Xe device.
+ * @tile: tile which bind exec queue belongs to.
+ * @flags: exec queue creation flags
+ * @extensions: exec queue creation extensions
+ *
+ * Normalize bind exec queue creation. Bind exec queue is tied to migration VM
+ * for access to physical memory required for page table programming. On a
+ * faulting devices the reserved copy engine instance must be used to avoid
+ * deadlocking (user binds cannot get stuck behind faults as kernel binds which
+ * resolve faults depend on user binds). On non-faulting devices any copy engine
+ * can be used.
+ *
+ * Returns exec queue on success, ERR_PTR on failure
+ */
+struct xe_exec_queue *xe_exec_queue_create_bind(struct xe_device *xe,
+						struct xe_tile *tile,
+						u32 flags, u64 extensions)
+{
+	struct xe_gt *gt = tile->primary_gt;
+	struct xe_exec_queue *q;
+	struct xe_vm *migrate_vm;
+
+	migrate_vm = xe_migrate_get_vm(tile->migrate);
+	if (xe->info.has_usm) {
+		struct xe_hw_engine *hwe = xe_gt_hw_engine(gt,
+							   XE_ENGINE_CLASS_COPY,
+							   gt->usm.reserved_bcs_instance,
+							   false);
+
 		if (!hwe) {
 			xe_vm_put(migrate_vm);
 			return ERR_PTR(-EINVAL);
@@ -483,34 +530,6 @@ static int exec_queue_user_extensions(struct xe_device *xe, struct xe_exec_queue
 	return 0;
 }
 
-static u32 bind_exec_queue_logical_mask(struct xe_device *xe, struct xe_gt *gt,
-					struct drm_xe_engine_class_instance *eci,
-					u16 width, u16 num_placements)
-{
-	struct xe_hw_engine *hwe;
-	enum xe_hw_engine_id id;
-	u32 logical_mask = 0;
-
-	if (XE_IOCTL_DBG(xe, width != 1))
-		return 0;
-	if (XE_IOCTL_DBG(xe, num_placements != 1))
-		return 0;
-	if (XE_IOCTL_DBG(xe, eci[0].engine_instance != 0))
-		return 0;
-
-	eci[0].engine_class = DRM_XE_ENGINE_CLASS_COPY;
-
-	for_each_hw_engine(hwe, gt, id) {
-		if (xe_hw_engine_is_reserved(hwe))
-			continue;
-
-		if (hwe->class == XE_ENGINE_CLASS_COPY)
-			logical_mask |= BIT(hwe->logical_instance);
-	}
-
-	return logical_mask;
-}
-
 static u32 calc_validate_logical_mask(struct xe_device *xe, struct xe_gt *gt,
 				      struct drm_xe_engine_class_instance *eci,
 				      u16 width, u16 num_placements)
@@ -604,14 +623,12 @@ int xe_exec_queue_create_ioctl(struct drm_device *dev, void *data,
 		    XE_IOCTL_DBG(xe, eci[0].engine_instance != 0))
 			return -EINVAL;
 
-			hwe = xe_hw_engine_lookup(xe, eci[0]);
-			if (XE_IOCTL_DBG(xe, !hwe))
-				return -EINVAL;
+		for_each_tile(tile, xe, id) {
+			struct xe_exec_queue *new;
+			u32 flags = EXEC_QUEUE_FLAG_VM;
 
-			/* The migration vm doesn't hold rpm ref */
-			xe_pm_runtime_get_noresume(xe);
-
-			flags = EXEC_QUEUE_FLAG_VM | (id ? EXEC_QUEUE_FLAG_BIND_ENGINE_CHILD : 0);
+			if (id)
+				flags |= EXEC_QUEUE_FLAG_BIND_ENGINE_CHILD;
 
 			new = xe_exec_queue_create_bind(xe, tile, flags,
 							args->extensions);
