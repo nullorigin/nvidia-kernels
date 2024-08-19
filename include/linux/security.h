@@ -1109,8 +1109,9 @@ static inline void security_cred_getsecid(const struct cred *c, u32 *secid) {
 }
 
 static inline void security_cred_getlsmblob(const struct cred *c,
-                                            struct lsmblob *blob) {
-  *secid = 0;
+					    struct lsmblob *blob)
+{
+	lsmblob_init(blob);
 }
 
 static inline void security_cred_getlsmprop(const struct cred *c,
