@@ -1627,7 +1627,7 @@ _panel_replay_compute_config(struct intel_dp *intel_dp,
 		return false;
 
 	if (crtc_state->crc_enabled) {
-		drm_dbg_kms(display->drm,
+		drm_dbg_kms(&i915->drm,
 			    "Panel Replay not enabled because it would inhibit pipe CRC calculation\n");
 		return false;
 	}
