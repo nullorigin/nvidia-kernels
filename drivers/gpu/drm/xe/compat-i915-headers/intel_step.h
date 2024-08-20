@@ -8,7 +8,6 @@
 
 #include "xe_step.h"
 
-#define intel_step xe_step
 #define intel_step_name xe_step_name
 
 #endif /* __INTEL_STEP_H__ */
