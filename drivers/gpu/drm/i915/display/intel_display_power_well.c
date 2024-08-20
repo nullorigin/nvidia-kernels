@@ -1198,9 +1198,9 @@ static void vlv_init_display_clock_gating(struct intel_display *display)
 		       MI_ARB_DISPLAY_TRICKLE_FEED_DISABLE);
 	intel_de_write(display, CBR1_VLV, 0);
 
-	drm_WARN_ON(display->drm, DISPLAY_RUNTIME_INFO(display)->rawclk_freq == 0);
-	intel_de_write(display, RAWCLK_FREQ_VLV,
-		       DIV_ROUND_CLOSEST(DISPLAY_RUNTIME_INFO(display)->rawclk_freq,
+	drm_WARN_ON(&dev_priv->drm, DISPLAY_RUNTIME_INFO(dev_priv)->rawclk_freq == 0);
+	intel_de_write(dev_priv, RAWCLK_FREQ_VLV,
+		       DIV_ROUND_CLOSEST(DISPLAY_RUNTIME_INFO(dev_priv)->rawclk_freq,
 					 1000));
 }
 

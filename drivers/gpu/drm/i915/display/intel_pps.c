@@ -1600,7 +1600,7 @@ static void pps_init_registers(struct intel_dp *intel_dp, bool force_disable_vdd
 	struct intel_display *display = to_intel_display(intel_dp);
 	struct drm_i915_private *dev_priv = to_i915(display->drm);
 	u32 pp_on, pp_off, port_sel = 0;
-	int div = DISPLAY_RUNTIME_INFO(display)->rawclk_freq / 1000;
+	int div = DISPLAY_RUNTIME_INFO(dev_priv)->rawclk_freq / 1000;
 	struct pps_registers regs;
 	enum port port = dp_to_dig_port(intel_dp)->base.port;
 	const struct intel_pps_delays *seq = &intel_dp->pps.pps_delays;

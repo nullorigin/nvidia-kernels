@@ -1851,13 +1851,8 @@ static void __intel_display_device_info_runtime_init(struct intel_display *displ
 		}
 	}
 
-	if (DISPLAY_VER(display) >= 30)
-		display_runtime->edp_typec_support =
-			intel_de_read(display, PICA_PHY_CONFIG_CONTROL) & EDP_ON_TYPEC;
-
-	display_runtime->rawclk_freq = intel_read_rawclk(display);
-	drm_dbg_kms(display->drm, "rawclk rate: %d kHz\n",
-		    display_runtime->rawclk_freq);
+	display_runtime->rawclk_freq = intel_read_rawclk(i915);
+	drm_dbg_kms(&i915->drm, "rawclk rate: %d kHz\n", display_runtime->rawclk_freq);
 
 	return;
 
