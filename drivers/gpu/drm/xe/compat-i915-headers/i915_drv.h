@@ -101,6 +101,8 @@ struct i915_sched_attr {
 };
 #define i915_gem_fence_wait_priority(fence, attr) do { (void) attr; } while (0)
 
+#define pdev_to_i915 pdev_to_xe_device
+
 #define FORCEWAKE_ALL XE_FORCEWAKE_ALL
 
 #ifdef CONFIG_ARM64
