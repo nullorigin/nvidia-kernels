@@ -75,11 +75,6 @@ static inline struct drm_i915_private *to_i915(const struct drm_device *dev)
 
 #define IS_MOBILE(xe) (xe && 0)
 
-#define INTEL_DISPLAY_STEP(xe) ((xe)->info.step.display)
-
-/* Workarounds not handled yet */
-#define IS_DISPLAY_STEP(xe, first, last) ({u8 __step = (xe)->info.step.display; first <= __step && __step < last; })
-
 #define IS_LP(xe) (0)
 #define IS_GEN9_LP(xe) (0)
 #define IS_GEN9_BC(xe) (0)
