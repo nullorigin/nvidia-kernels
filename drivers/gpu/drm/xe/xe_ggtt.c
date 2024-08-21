@@ -283,71 +283,6 @@ static void xe_ggtt_initial_clear(struct xe_ggtt *ggtt)
 	mutex_unlock(&ggtt->lock);
 }
 
-static void ggtt_node_remove(struct xe_ggtt_node *node)
-{
-	struct xe_ggtt *ggtt = node->ggtt;
-	struct xe_device *xe = tile_to_xe(ggtt->tile);
-	bool bound;
-	int idx;
-
-	bound = drm_dev_enter(&xe->drm, &idx);
-
-	mutex_lock(&ggtt->lock);
-	if (bound)
-		xe_ggtt_clear(ggtt, node->base.start, node->base.size);
-	drm_mm_remove_node(&node->base);
-	node->base.size = 0;
-	mutex_unlock(&ggtt->lock);
-
-	if (!bound)
-		goto free_node;
-
-	if (node->invalidate_on_remove)
-		xe_ggtt_invalidate(ggtt);
-
-	drm_dev_exit(idx);
-
-free_node:
-	xe_ggtt_node_fini(node);
-}
-
-static void ggtt_node_remove_work_func(struct work_struct *work)
-{
-	struct xe_ggtt_node *node = container_of(work, typeof(*node),
-						 delayed_removal_work);
-	struct xe_device *xe = tile_to_xe(node->ggtt->tile);
-
-	xe_pm_runtime_get(xe);
-	ggtt_node_remove(node);
-	xe_pm_runtime_put(xe);
-}
-
-/**
- * xe_ggtt_node_remove - Remove a &xe_ggtt_node from the GGTT
- * @node: the &xe_ggtt_node to be removed
- * @invalidate: if node needs invalidation upon removal
- */
-void xe_ggtt_node_remove(struct xe_ggtt_node *node, bool invalidate)
-{
-	struct xe_ggtt *ggtt;
-	struct xe_device *xe;
-
-	if (!node || !node->ggtt)
-		return;
-
-	ggtt = node->ggtt;
-	xe = tile_to_xe(ggtt->tile);
-
-	node->invalidate_on_remove = invalidate;
-
-	if (xe_pm_runtime_get_if_active(xe)) {
-		ggtt_node_remove(node);
-		xe_pm_runtime_put(xe);
-	} else {
-		queue_work(ggtt->wq, &node->delayed_removal_work);
-	}
-}
-
 /**
  * xe_ggtt_init - Regular non-early GGTT initialization
  * @ggtt: the &xe_ggtt to be initialized
@@ -481,44 +416,41 @@ void xe_ggtt_node_remove_balloon(struct xe_ggtt_node *node)
 
 	xe_ggtt_dump_node(node->ggtt, &node->base, "remove-balloon");
 
-	mutex_lock(&node->ggtt->lock);
-	drm_mm_remove_node(&node->base);
-	mutex_unlock(&node->ggtt->lock);
-
-free_node:
-	xe_ggtt_node_fini(node);
+	mutex_lock(&ggtt->lock);
+	drm_mm_remove_node(node);
+	mutex_unlock(&ggtt->lock);
 }
 
 /**
- * xe_ggtt_node_insert_locked - Locked version to insert a &xe_ggtt_node into the GGTT
- * @node: the &xe_ggtt_node to be inserted
+ * xe_ggtt_insert_special_node_locked - Locked version to insert a &drm_mm_node into the GGTT
+ * @ggtt: the &xe_ggtt where node will be inserted
+ * @node: the &drm_mm_node to be inserted
  * @size: size of the node
  * @align: alignment constrain of the node
  * @mm_flags: flags to control the node behavior
  *
- * It cannot be called without first having called xe_ggtt_init() once.
  * To be used in cases where ggtt->lock is already taken.
  *
  * Return: 0 on success or a negative error code on failure.
  */
-int xe_ggtt_node_insert_locked(struct xe_ggtt_node *node,
-			       u32 size, u32 align, u32 mm_flags)
+int xe_ggtt_insert_special_node_locked(struct xe_ggtt *ggtt, struct drm_mm_node *node,
+				       u32 size, u32 align, u32 mm_flags)
 {
 	return drm_mm_insert_node_generic(&node->ggtt->mm, &node->base, size, align, 0,
 					  mm_flags);
 }
 
 /**
- * xe_ggtt_node_insert - Insert a &xe_ggtt_node into the GGTT
- * @node: the &xe_ggtt_node to be inserted
+ * xe_ggtt_insert_special_node - Insert a &drm_mm_node into the GGTT
+ * @ggtt: the &xe_ggtt where node will be inserted
+ * @node: the &drm_mm_node to be inserted
  * @size: size of the node
  * @align: alignment constrain of the node
  *
- * It cannot be called without first having called xe_ggtt_init() once.
- *
  * Return: 0 on success or a negative error code on failure.
  */
-int xe_ggtt_node_insert(struct xe_ggtt_node *node, u32 size, u32 align)
+int xe_ggtt_insert_special_node(struct xe_ggtt *ggtt, struct drm_mm_node *node,
+				u32 size, u32 align)
 {
 	int ret;
 
@@ -531,59 +463,6 @@ int xe_ggtt_node_insert(struct xe_ggtt_node *node, u32 size, u32 align)
 	mutex_unlock(&node->ggtt->lock);
 
 	return ret;
-}
-
-/**
- * xe_ggtt_node_init - Initialize %xe_ggtt_node struct
- * @ggtt: the &xe_ggtt where the new node will later be inserted/reserved.
- *
- * This function will allocated the struct %xe_ggtt_node and return it's pointer.
- * This struct will then be freed after the node removal upon xe_ggtt_node_remove()
- * or xe_ggtt_node_remove_balloon().
- * Having %xe_ggtt_node struct allocated doesn't mean that the node is already allocated
- * in GGTT. Only the xe_ggtt_node_insert(), xe_ggtt_node_insert_locked(),
- * xe_ggtt_node_insert_balloon() will ensure the node is inserted or reserved in GGTT.
- *
- * Return: A pointer to %xe_ggtt_node struct on success. An ERR_PTR otherwise.
- **/
-struct xe_ggtt_node *xe_ggtt_node_init(struct xe_ggtt *ggtt)
-{
-	struct xe_ggtt_node *node = kzalloc(sizeof(*node), GFP_NOFS);
-
-	if (!node)
-		return ERR_PTR(-ENOMEM);
-
-	INIT_WORK(&node->delayed_removal_work, ggtt_node_remove_work_func);
-	node->ggtt = ggtt;
-
-	return node;
-}
-
-/**
- * xe_ggtt_node_fini - Forcebly finalize %xe_ggtt_node struct
- * @node: the &xe_ggtt_node to be freed
- *
- * If anything went wrong with either xe_ggtt_node_insert(), xe_ggtt_node_insert_locked(),
- * or xe_ggtt_node_insert_balloon(); and this @node is not going to be reused, then,
- * this function needs to be called to free the %xe_ggtt_node struct
- **/
-void xe_ggtt_node_fini(struct xe_ggtt_node *node)
-{
-	kfree(node);
-}
-
-/**
- * xe_ggtt_node_allocated - Check if node is allocated in GGTT
- * @node: the &xe_ggtt_node to be inspected
- *
- * Return: True if allocated, False otherwise.
- */
-bool xe_ggtt_node_allocated(const struct xe_ggtt_node *node)
-{
-	if (!node || !node->ggtt)
-		return false;
-
-	return drm_mm_node_allocated(&node->base);
 }
 
 /**
@@ -683,6 +562,40 @@ int xe_ggtt_insert_bo_at(struct xe_ggtt *ggtt, struct xe_bo *bo,
 int xe_ggtt_insert_bo(struct xe_ggtt *ggtt, struct xe_bo *bo)
 {
 	return __xe_ggtt_insert_bo_at(ggtt, bo, 0, U64_MAX);
+}
+
+/**
+ * xe_ggtt_remove_node - Remove a &drm_mm_node from the GGTT
+ * @ggtt: the &xe_ggtt where node will be removed
+ * @node: the &drm_mm_node to be removed
+ * @invalidate: if node needs invalidation upon removal
+ */
+void xe_ggtt_remove_node(struct xe_ggtt *ggtt, struct drm_mm_node *node,
+			 bool invalidate)
+{
+	struct xe_device *xe = tile_to_xe(ggtt->tile);
+	bool bound;
+	int idx;
+
+	bound = drm_dev_enter(&xe->drm, &idx);
+	if (bound)
+		xe_pm_runtime_get_noresume(xe);
+
+	mutex_lock(&ggtt->lock);
+	if (bound)
+		xe_ggtt_clear(ggtt, node->start, node->size);
+	drm_mm_remove_node(node);
+	node->size = 0;
+	mutex_unlock(&ggtt->lock);
+
+	if (!bound)
+		return;
+
+	if (invalidate)
+		xe_ggtt_invalidate(ggtt);
+
+	xe_pm_runtime_put(xe);
+	drm_dev_exit(idx);
 }
 
 /**
