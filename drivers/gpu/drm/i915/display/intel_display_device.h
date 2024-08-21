@@ -243,8 +243,6 @@ struct intel_display_runtime_info {
 
 	u32 rawclk_freq;
 
-	u32 rawclk_freq;
-
 	u8 pipe_mask;
 	u8 cpu_transcoder_mask;
 	u16 port_mask;

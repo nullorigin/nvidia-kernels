@@ -1016,11 +1016,8 @@ static const enum intel_step tgl_uy_steppings[] = {
 static const struct platform_desc tgl_desc = {
 	PLATFORM(tigerlake),
 	.subplatforms = (const struct subplatform_desc[]) {
-		{
-			SUBPLATFORM(tigerlake, uy),
-			.pciidlist = tgl_uy_ids,
-			STEP_INFO(tgl_uy_steppings),
-		},
+		{ INTEL_DISPLAY_TIGERLAKE_UY, "UY", tgl_uy_ids,
+		  STEP_INFO(tgl_uy_steppings) },
 		{},
 	},
 	.info = &(const struct intel_display_device_info) {
@@ -1097,11 +1094,8 @@ static const enum intel_step adl_s_rpl_s_steppings[] = {
 static const struct platform_desc adl_s_desc = {
 	PLATFORM(alderlake_s),
 	.subplatforms = (const struct subplatform_desc[]) {
-		{
-			SUBPLATFORM(alderlake_s, raptorlake_s),
-			.pciidlist = adls_rpls_ids,
-			STEP_INFO(adl_s_rpl_s_steppings),
-		},
+		{ INTEL_DISPLAY_ALDERLAKE_S_RAPTORLAKE_S, "RPL-S", adls_rpls_ids,
+		  STEP_INFO(adl_s_rpl_s_steppings) },
 		{},
 	},
 	.info = &(const struct intel_display_device_info) {
@@ -1204,21 +1198,12 @@ static const enum intel_step adl_p_rpl_pu_steppings[] = {
 static const struct platform_desc adl_p_desc = {
 	PLATFORM(alderlake_p),
 	.subplatforms = (const struct subplatform_desc[]) {
-		{
-			SUBPLATFORM(alderlake_p, alderlake_n),
-			.pciidlist = adlp_adln_ids,
-			STEP_INFO(adl_p_adl_n_steppings),
-		},
-		{
-			SUBPLATFORM(alderlake_p, raptorlake_p),
-			.pciidlist = adlp_rplp_ids,
-			STEP_INFO(adl_p_rpl_pu_steppings),
-		},
-		{
-			SUBPLATFORM(alderlake_p, raptorlake_u),
-			.pciidlist = adlp_rplu_ids,
-			STEP_INFO(adl_p_rpl_pu_steppings),
-		},
+		{ INTEL_DISPLAY_ALDERLAKE_P_ALDERLAKE_N, "ADL-N", adlp_adln_ids,
+		  STEP_INFO(adl_p_adl_n_steppings) },
+		{ INTEL_DISPLAY_ALDERLAKE_P_RAPTORLAKE_P, "RPL-P", adlp_rplp_ids,
+		  STEP_INFO(adl_p_rpl_pu_steppings) },
+		{ INTEL_DISPLAY_ALDERLAKE_P_RAPTORLAKE_U, "RPL-U", adlp_rplu_ids,
+		  STEP_INFO(adl_p_rpl_pu_steppings) },
 		{},
 	},
 	.info = &xe_lpd_display,
@@ -1273,21 +1258,12 @@ static const struct platform_desc dg2_desc = {
 	PLATFORM(dg2),
 	PLATFORM_GROUP(dgfx),
 	.subplatforms = (const struct subplatform_desc[]) {
-		{
-			SUBPLATFORM(dg2, g10),
-			.pciidlist = dg2_g10_ids,
-			STEP_INFO(dg2_g10_steppings),
-		},
-		{
-			SUBPLATFORM(dg2, g11),
-			.pciidlist = dg2_g11_ids,
-			STEP_INFO(dg2_g11_steppings),
-		},
-		{
-			SUBPLATFORM(dg2, g12),
-			.pciidlist = dg2_g12_ids,
-			STEP_INFO(dg2_g12_steppings),
-		},
+		{ INTEL_DISPLAY_DG2_G10, "G10", dg2_g10_ids,
+		  STEP_INFO(dg2_g10_steppings) },
+		{ INTEL_DISPLAY_DG2_G11, "G11", dg2_g11_ids,
+		  STEP_INFO(dg2_g11_steppings) },
+		{ INTEL_DISPLAY_DG2_G12, "G12", dg2_g12_ids,
+		  STEP_INFO(dg2_g12_steppings) },
 		{},
 	},
 	.info = &xe_hpd_display,
@@ -1585,28 +1561,10 @@ static enum intel_step get_pre_gmdid_step(struct intel_display *display,
 	return step;
 }
 
-/* Size of the entire bitmap, not the number of platforms */
-static unsigned int display_platforms_num_bits(void)
+void intel_display_device_probe(struct drm_i915_private *i915)
 {
-	return sizeof(((struct intel_display_platforms *)0)->bitmap) * BITS_PER_BYTE;
-}
-
-/* Number of platform bits set */
-static unsigned int display_platforms_weight(const struct intel_display_platforms *p)
-{
-	return bitmap_weight(p->bitmap, display_platforms_num_bits());
-}
-
-/* Merge the subplatform information from src to dst */
-static void display_platforms_or(struct intel_display_platforms *dst,
-				 const struct intel_display_platforms *src)
-{
-	bitmap_or(dst->bitmap, dst->bitmap, src->bitmap, display_platforms_num_bits());
-}
-
-struct intel_display *intel_display_device_probe(struct pci_dev *pdev)
-{
-	struct intel_display *display = to_intel_display(pdev);
+	struct intel_display *display = &i915->display;
+	struct pci_dev *pdev = to_pci_dev(i915->drm.dev);
 	const struct intel_display_device_info *info;
 	struct intel_display_ip_ver ip_ver = {};
 	const struct platform_desc *desc;
@@ -1663,7 +1621,7 @@ struct intel_display *intel_display_device_probe(struct pci_dev *pdev)
 	}
 
 	if (ip_ver.ver || ip_ver.rel || ip_ver.step) {
-		DISPLAY_RUNTIME_INFO(display)->ip = ip_ver;
+		DISPLAY_RUNTIME_INFO(i915)->ip = ip_ver;
 		step = STEP_A0 + ip_ver.step;
 		if (step > STEP_FUTURE) {
 			drm_dbg_kms(display->drm, "Using future display stepping\n");
@@ -1674,13 +1632,12 @@ struct intel_display *intel_display_device_probe(struct pci_dev *pdev)
 					  subdesc ? &subdesc->step_info : NULL);
 	}
 
-	DISPLAY_RUNTIME_INFO(display)->step = step;
+	DISPLAY_RUNTIME_INFO(i915)->step = step;
 
-	drm_info(display->drm, "Found %s%s%s (device ID %04x) %s display version %u.%02u stepping %s\n",
+	drm_info(&i915->drm, "Found %s%s%s (device ID %04x) display version %u.%02u stepping %s\n",
 		 desc->name, subdesc ? "/" : "", subdesc ? subdesc->name : "",
-		 pdev->device, display->platform.dgfx ? "discrete" : "integrated",
-		 DISPLAY_RUNTIME_INFO(display)->ip.ver,
-		 DISPLAY_RUNTIME_INFO(display)->ip.rel,
+		 pdev->device, DISPLAY_RUNTIME_INFO(i915)->ip.ver,
+		 DISPLAY_RUNTIME_INFO(i915)->ip.rel,
 		 step != STEP_NONE ? intel_step_name(step) : "N/A");
 
 	return display;
