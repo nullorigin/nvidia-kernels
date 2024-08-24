@@ -273,8 +273,9 @@ static struct table_header *remap_data16_to_data32(struct table_header *old)
 	new->td_flags = YYTD_DATA32;
 	new->td_lolen = old->td_lolen;
 
-	for (i = 0; i < old->td_lolen; i++)
+	for (i = 0; i < old->td_lolen; i++) {
 		TABLE_DATAU32(new)[i] = (u32) TABLE_DATAU16(old)[i];
+	}
 
 	kvfree(old);
 	if (is_vmalloc_addr(new))
