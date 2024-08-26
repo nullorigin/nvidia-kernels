@@ -81,14 +81,7 @@ static struct lockdep_map xe_pm_runtime_nod3cold_map = {
 };
 #endif
 
-/**
- * xe_rpm_reclaim_safe() - Whether runtime resume can be done from reclaim context
- * @xe: The xe device.
- *
- * Return: true if it is safe to runtime resume from reclaim context.
- * false otherwise.
- */
-bool xe_rpm_reclaim_safe(const struct xe_device *xe)
+static bool __maybe_unused xe_rpm_reclaim_safe(const struct xe_device *xe)
 {
 	return !xe->d3cold.capable && !xe->info.has_sriov;
 }
@@ -419,7 +412,7 @@ int xe_pm_runtime_suspend(struct xe_device *xe)
 
 out:
 	if (err)
-		xe_display_pm_runtime_resume(xe);
+		xe_display_pm_resume(xe, true);
 	xe_rpm_lockmap_release(xe);
 	xe_pm_write_callback_task(xe, NULL);
 	return err;
@@ -740,6 +733,9 @@ void xe_pm_d3cold_allowed_toggle(struct xe_device *xe)
 		xe->d3cold.allowed = false;
 
 	mutex_unlock(&xe->d3cold.lock);
+
+	drm_dbg(&xe->drm,
+		"d3cold: allowed=%s\n", str_yes_no(xe->d3cold.allowed));
 }
 
 /**
