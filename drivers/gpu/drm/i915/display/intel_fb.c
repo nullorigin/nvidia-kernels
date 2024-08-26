@@ -250,7 +250,7 @@ static const struct intel_modifier_desc intel_modifiers[] = {
 	}, {
 		.modifier = I915_FORMAT_MOD_4_TILED_BMG_CCS,
 		.display_ver = { 14, -1 },
-		.plane_caps = INTEL_PLANE_CAP_TILING_4,
+		.plane_caps = INTEL_PLANE_CAP_TILING_4 | INTEL_PLANE_CAP_NEED64K_PHYS,
 	}, {
 		.modifier = I915_FORMAT_MOD_4_TILED_MTL_MC_CCS,
 		.display_ver = { 14, 14 },
@@ -517,19 +517,6 @@ bool intel_fb_needs_64k_phys(u64 modifier)
 
 	return plane_caps_contain_any(md->plane_caps,
 				      INTEL_PLANE_CAP_NEED64K_PHYS);
-}
-
-/**
- * intel_fb_is_tile4_modifier: Check if a modifier is a tile4 modifier type
- * @modifier: Modifier to check
- *
- * Returns:
- * Returns %true if @modifier is a tile4 modifier.
- */
-bool intel_fb_is_tile4_modifier(u64 modifier)
-{
-	return plane_caps_contain_any(lookup_modifier(modifier)->plane_caps,
-				      INTEL_PLANE_CAP_TILING_4);
 }
 
 static bool check_modifier_display_ver_range(const struct intel_modifier_desc *md,
