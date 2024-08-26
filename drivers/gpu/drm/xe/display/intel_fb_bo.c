@@ -37,7 +37,7 @@ int intel_fb_bo_framebuffer_init(struct intel_framebuffer *intel_fb,
 	 * require that the BO in those cases is created correctly.
 	 */
 	if (XE_IOCTL_DBG(xe, intel_fb_needs_64k_phys(mode_cmd->modifier[0]) &&
-			     !(bo->flags & XE_BO_FLAG_NEEDS_64K)))
+			     !(bo->flags & XE_BO_NEEDS_64K)))
 		return -EINVAL;
 
 	xe_bo_get(bo);
