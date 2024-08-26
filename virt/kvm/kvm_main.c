@@ -2865,17 +2865,9 @@ static bool vma_is_valid(struct vm_area_struct *vma, bool write_fault)
 static int hva_to_pfn_remapped(struct vm_area_struct *vma,
 			       struct kvm_follow_pfn *kfp, kvm_pfn_t *p_pfn)
 {
-	struct follow_pfnmap_args args = { .vma = vma, .address = kfp->hva };
-	bool write_fault = kfp->flags & FOLL_WRITE;
+	struct follow_pfnmap_args args = { .vma = vma, .address = addr };
+	kvm_pfn_t pfn;
 	int r;
-
-	/*
-	 * Remapped memory cannot be pinned in any meaningful sense.  Bail if
-	 * the caller wants to pin the page, i.e. access the page outside of
-	 * MMU notifier protection, and unsafe umappings are disallowed.
-	 */
-	if (kfp->pin && !allow_unsafe_mappings)
-		return -EINVAL;
 
 	r = follow_pfnmap_start(&args);
 	if (r) {
@@ -2898,13 +2890,37 @@ static int hva_to_pfn_remapped(struct vm_area_struct *vma,
 	}
 
 	if (write_fault && !args.writable) {
-		*p_pfn = KVM_PFN_ERR_RO_FAULT;
+		pfn = KVM_PFN_ERR_RO_FAULT;
 		goto out;
 	}
 
-	*p_pfn = kvm_resolve_pfn(kfp, NULL, &args, args.writable);
+	if (writable)
+		*writable = args.writable;
+	pfn = args.pfn;
+
+	/*
+	 * Get a reference here because callers of *hva_to_pfn* and
+	 * *gfn_to_pfn* ultimately call kvm_release_pfn_clean on the
+	 * returned pfn.  This is only needed if the VMA has VM_MIXEDMAP
+	 * set, but the kvm_try_get_pfn/kvm_release_pfn_clean pair will
+	 * simply do nothing for reserved pfns.
+	 *
+	 * Whoever called remap_pfn_range is also going to call e.g.
+	 * unmap_mapping_range before the underlying pages are freed,
+	 * causing a call to our MMU notifier.
+	 *
+	 * Certain IO or PFNMAP mappings can be backed with valid
+	 * struct pages, but be allocated without refcounting e.g.,
+	 * tail pages of non-compound higher order allocations, which
+	 * would then underflow the refcount when the caller does the
+	 * required put_page. Don't allow those pages here.
+	 */
+	if (!kvm_try_get_pfn(pfn))
+		r = -EFAULT;
 out:
 	follow_pfnmap_end(&args);
+	*p_pfn = pfn;
+
 	return r;
 }
 
