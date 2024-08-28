@@ -346,13 +346,6 @@ static const struct xe_device_desc bmg_desc = {
 	.has_heci_cscfi = 1,
 };
 
-static const struct xe_device_desc ptl_desc = {
-	PLATFORM(PANTHERLAKE),
-	.has_display = true,
-	.require_force_probe = true,
-	.has_heci_cscfi = 1,
-};
-
 #undef PLATFORM
 __diag_pop();
 
