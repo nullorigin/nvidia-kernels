@@ -3702,8 +3702,8 @@ int arm_smmu_init_one_queue(struct arm_smmu_device *smmu,
 	return 0;
 }
 
-int arm_smmu_cmdq_init(struct arm_smmu_device *smmu,
-		       struct arm_smmu_cmdq *cmdq)
+static int arm_smmu_cmdq_init(struct arm_smmu_device *smmu,
+			      struct arm_smmu_cmdq *cmdq)
 {
 	unsigned int nents = 1 << cmdq->q.llq.max_n_shift;
 
