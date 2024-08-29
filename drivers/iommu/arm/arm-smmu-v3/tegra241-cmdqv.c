@@ -79,6 +79,7 @@
 #define TEGRA241_VCMDQ_PAGE1(q)		(TEGRA241_VCMDQ_PAGE1_BASE + 0x80*(q))
 #define  VCMDQ_ADDR			GENMASK(47, 5)
 #define  VCMDQ_LOG2SIZE			GENMASK(4, 0)
+#define  VCMDQ_LOG2SIZE_MAX		19
 
 #define TEGRA241_VCMDQ_BASE		0x00000
 #define TEGRA241_VCMDQ_CONS_INDX_BASE	0x00008
@@ -141,7 +142,6 @@ struct tegra241_vcmdq {
  * struct tegra241_vintf - Virtual Interface
  * @idx: Global index in the CMDQV
  * @enabled: Enable status
- * @hyp_own: Owned by hypervisor (in-kernel)
  * @cmdqv: Parent CMDQV pointer
  * @lvcmdqs: List of logical VCMDQ pointers
  * @base: MMIO base address
@@ -150,7 +150,6 @@ struct tegra241_vintf {
 	u16 idx;
 
 	bool enabled;
-	bool hyp_own;
 
 	struct tegra241_cmdqv *cmdqv;
 	struct tegra241_vcmdq **lvcmdqs;
@@ -232,7 +231,7 @@ static inline int vintf_write_config(struct tegra241_vintf *vintf, u32 regval)
 static inline char *lvcmdq_error_header(struct tegra241_vcmdq *vcmdq,
 					char *header, int hlen)
 {
-	WARN_ON(hlen < 64);
+	WARN_ON(hlen < 32);
 	if (WARN_ON(!vcmdq->vintf))
 		return "";
 	snprintf(header, hlen, "VINTF%u: VCMDQ%u/LVCMDQ%u: ",
@@ -242,7 +241,7 @@ static inline char *lvcmdq_error_header(struct tegra241_vcmdq *vcmdq,
 
 static inline int vcmdq_write_config(struct tegra241_vcmdq *vcmdq, u32 regval)
 {
-	char header[64], *h = lvcmdq_error_header(vcmdq, header, 64);
+	char header[32], *h = lvcmdq_error_header(vcmdq, header, 32);
 
 	return tegra241_cmdqv_write_config(vcmdq->cmdqv,
 					   REG_VCMDQ_PAGE0(vcmdq, CONFIG),
@@ -302,21 +301,8 @@ static irqreturn_t tegra241_cmdqv_isr(int irq, void *devid)
 
 /* Command Queue Function */
 
-static bool tegra241_guest_vcmdq_supports_cmd(struct arm_smmu_cmdq_ent *ent)
-{
-	switch (ent->opcode) {
-	case CMDQ_OP_TLBI_NH_ASID:
-	case CMDQ_OP_TLBI_NH_VA:
-	case CMDQ_OP_ATC_INV:
-		return true;
-	default:
-		return false;
-	}
-}
-
 static struct arm_smmu_cmdq *
-tegra241_cmdqv_get_cmdq(struct arm_smmu_device *smmu,
-			struct arm_smmu_cmdq_ent *ent)
+tegra241_cmdqv_get_cmdq(struct arm_smmu_device *smmu)
 {
 	struct tegra241_cmdqv *cmdqv =
 		container_of(smmu, struct tegra241_cmdqv, smmu);
@@ -338,13 +324,9 @@ tegra241_cmdqv_get_cmdq(struct arm_smmu_device *smmu,
 	 * one CPU at a time can enter the process, while the others
 	 * will be spinning at the same lock.
 	 */
-	lidx = raw_smp_processor_id() % cmdqv->num_lvcmdqs_per_vintf;
+	lidx = smp_processor_id() % cmdqv->num_lvcmdqs_per_vintf;
 	vcmdq = vintf->lvcmdqs[lidx];
 	if (!vcmdq || !READ_ONCE(vcmdq->enabled))
-		return NULL;
-
-	/* Unsupported CMD goes for smmu->cmdq pathway */
-	if (!arm_smmu_cmdq_supports_cmd(&vcmdq->cmdq, ent))
 		return NULL;
 	return &vcmdq->cmdq;
 }
@@ -353,7 +335,7 @@ tegra241_cmdqv_get_cmdq(struct arm_smmu_device *smmu,
 
 static void tegra241_vcmdq_hw_deinit(struct tegra241_vcmdq *vcmdq)
 {
-	char header[64], *h = lvcmdq_error_header(vcmdq, header, 64);
+	char header[32], *h = lvcmdq_error_header(vcmdq, header, 32);
 	u32 gerrorn, gerror;
 
 	if (vcmdq_write_config(vcmdq, 0)) {
@@ -381,7 +363,7 @@ static void tegra241_vcmdq_hw_deinit(struct tegra241_vcmdq *vcmdq)
 
 static int tegra241_vcmdq_hw_init(struct tegra241_vcmdq *vcmdq)
 {
-	char header[64], *h = lvcmdq_error_header(vcmdq, header, 64);
+	char header[32], *h = lvcmdq_error_header(vcmdq, header, 32);
 	int ret;
 
 	/* Reset VCMDQ */
@@ -424,22 +406,12 @@ static int tegra241_vintf_hw_init(struct tegra241_vintf *vintf, bool hyp_own)
 	tegra241_vintf_hw_deinit(vintf);
 
 	/* Configure and enable VINTF */
-	/*
-	 * Note that HYP_OWN bit is wired to zero when running in guest kernel,
-	 * whether enabling it here or not, as !HYP_OWN cmdq HWs only support a
-	 * restricted set of supported commands.
-	 */
 	regval = FIELD_PREP(VINTF_HYP_OWN, hyp_own);
 	writel(regval, REG_VINTF(vintf, CONFIG));
 
 	ret = vintf_write_config(vintf, regval | VINTF_EN);
 	if (ret)
 		return ret;
-	/*
-	 * As being mentioned above, HYP_OWN bit is wired to zero for a guest
-	 * kernel, so read it back from HW to ensure that reflects in hyp_own
-	 */
-	vintf->hyp_own = !!(VINTF_HYP_OWN & readl(REG_VINTF(vintf, CONFIG)));
 
 	for (lidx = 0; lidx < vintf->cmdqv->num_lvcmdqs_per_vintf; lidx++) {
 		if (vintf->lvcmdqs && vintf->lvcmdqs[lidx]) {
@@ -504,15 +476,11 @@ static int tegra241_vcmdq_alloc_smmu_cmdq(struct tegra241_vcmdq *vcmdq)
 	struct arm_smmu_cmdq *cmdq = &vcmdq->cmdq;
 	struct arm_smmu_queue *q = &cmdq->q;
 	char name[16];
-	u32 regval;
 	int ret;
 
 	snprintf(name, 16, "vcmdq%u", vcmdq->idx);
 
-	/* Cap queue size to SMMU's IDR1.CMDQS and ensure natural alignment */
-	regval = readl_relaxed(smmu->base + ARM_SMMU_IDR1);
-	q->llq.max_n_shift =
-		min_t(u32, CMDQ_MAX_SZ_SHIFT, FIELD_GET(IDR1_CMDQS, regval));
+	q->llq.max_n_shift = VCMDQ_LOG2SIZE_MAX;
 
 	/* Use the common helper to init the VCMDQ, and then... */
 	ret = arm_smmu_init_one_queue(smmu, q, vcmdq->page0,
@@ -524,9 +492,6 @@ static int tegra241_vcmdq_alloc_smmu_cmdq(struct tegra241_vcmdq *vcmdq)
 	/* ...override q_base to write VCMDQ_BASE registers */
 	q->q_base = q->base_dma & VCMDQ_ADDR;
 	q->q_base |= FIELD_PREP(VCMDQ_LOG2SIZE, q->llq.max_n_shift);
-
-	if (!vcmdq->vintf->hyp_own)
-		cmdq->supports_cmd = tegra241_guest_vcmdq_supports_cmd;
 
 	return arm_smmu_cmdq_init(smmu, cmdq);
 }
@@ -558,13 +523,13 @@ static int tegra241_vintf_init_lvcmdq(struct tegra241_vintf *vintf, u16 lidx,
 static void tegra241_vintf_free_lvcmdq(struct tegra241_vintf *vintf, u16 lidx)
 {
 	struct tegra241_vcmdq *vcmdq = vintf->lvcmdqs[lidx];
-	char header[64];
+	char header[32];
 
 	tegra241_vcmdq_free_smmu_cmdq(vcmdq);
 	tegra241_vintf_deinit_lvcmdq(vintf, lidx);
 
 	dev_dbg(vintf->cmdqv->dev,
-		"%sdeallocated\n", lvcmdq_error_header(vcmdq, header, 64));
+		"%sdeallocated\n", lvcmdq_error_header(vcmdq, header, 32));
 	kfree(vcmdq);
 }
 
@@ -573,7 +538,7 @@ tegra241_vintf_alloc_lvcmdq(struct tegra241_vintf *vintf, u16 lidx)
 {
 	struct tegra241_cmdqv *cmdqv = vintf->cmdqv;
 	struct tegra241_vcmdq *vcmdq;
-	char header[64];
+	char header[32];
 	int ret;
 
 	vcmdq = kzalloc(sizeof(*vcmdq), GFP_KERNEL);
@@ -590,7 +555,7 @@ tegra241_vintf_alloc_lvcmdq(struct tegra241_vintf *vintf, u16 lidx)
 		goto deinit_lvcmdq;
 
 	dev_dbg(cmdqv->dev,
-		"%sallocated\n", lvcmdq_error_header(vcmdq, header, 64));
+		"%sallocated\n", lvcmdq_error_header(vcmdq, header, 32));
 	return vcmdq;
 
 deinit_lvcmdq:
@@ -758,75 +723,26 @@ free_list:
 	return res;
 }
 
-static int tegra241_cmdqv_init_structures(struct arm_smmu_device *smmu)
-{
-	struct tegra241_cmdqv *cmdqv =
-		container_of(smmu, struct tegra241_cmdqv, smmu);
-	struct tegra241_vintf *vintf;
-	int lidx;
-	int ret;
-
-	vintf = kzalloc(sizeof(*vintf), GFP_KERNEL);
-	if (!vintf)
-		goto out_fallback;
-
-	/* Init VINTF0 for in-kernel use */
-	ret = tegra241_cmdqv_init_vintf(cmdqv, 0, vintf);
-	if (ret) {
-		dev_err(cmdqv->dev, "failed to init vintf0: %d\n", ret);
-		goto free_vintf;
-	}
-
-	/* Preallocate logical VCMDQs to VINTF0 */
-	for (lidx = 0; lidx < cmdqv->num_lvcmdqs_per_vintf; lidx++) {
-		struct tegra241_vcmdq *vcmdq;
-
-		vcmdq = tegra241_vintf_alloc_lvcmdq(vintf, lidx);
-		if (IS_ERR(vcmdq))
-			goto free_lvcmdq;
-	}
-
-	/* Now, we are ready to run all the impl ops */
-	smmu->impl_ops = &tegra241_cmdqv_impl_ops;
-	return 0;
-
-free_lvcmdq:
-	for (lidx--; lidx >= 0; lidx--)
-		tegra241_vintf_free_lvcmdq(vintf, lidx);
-	tegra241_cmdqv_deinit_vintf(cmdqv, vintf->idx);
-free_vintf:
-	kfree(vintf);
-out_fallback:
-	dev_info(smmu->impl_dev, "Falling back to standard SMMU CMDQ\n");
-	smmu->options &= ~ARM_SMMU_OPT_TEGRA241_CMDQV;
-	tegra241_cmdqv_remove(smmu);
-	return 0;
-}
-
-#ifdef CONFIG_IOMMU_DEBUGFS
-static struct dentry *cmdqv_debugfs_dir;
-#endif
+struct dentry *cmdqv_debugfs_dir;
 
 static struct arm_smmu_device *
 __tegra241_cmdqv_probe(struct arm_smmu_device *smmu, struct resource *res,
 		       int irq)
 {
-	static const struct arm_smmu_impl_ops init_ops = {
-		.init_structures = tegra241_cmdqv_init_structures,
-		.device_remove = tegra241_cmdqv_remove,
-	};
+	static struct arm_smmu_device *new_smmu;
 	struct tegra241_cmdqv *cmdqv = NULL;
-	struct arm_smmu_device *new_smmu;
+	struct tegra241_vintf *vintf;
 	void __iomem *base;
 	u32 regval;
+	int lidx;
 	int ret;
 
 	static_assert(offsetof(struct tegra241_cmdqv, smmu) == 0);
 
 	base = ioremap(res->start, resource_size(res));
-	if (!base) {
-		dev_err(smmu->dev, "failed to ioremap\n");
-		return NULL;
+	if (IS_ERR(base)) {
+		dev_err(smmu->dev, "failed to ioremap: %ld\n", PTR_ERR(base));
+		goto iounmap;
 	}
 
 	regval = readl(base + TEGRA241_CMDQV_CONFIG);
@@ -867,6 +783,26 @@ __tegra241_cmdqv_probe(struct arm_smmu_device *smmu, struct resource *res,
 
 	ida_init(&cmdqv->vintf_ids);
 
+	vintf = kzalloc(sizeof(*vintf), GFP_KERNEL);
+	if (!vintf)
+		goto destroy_ids;
+
+	/* Init VINTF0 for in-kernel use */
+	ret = tegra241_cmdqv_init_vintf(cmdqv, 0, vintf);
+	if (ret) {
+		dev_err(cmdqv->dev, "failed to init vintf0: %d\n", ret);
+		goto free_vintf;
+	}
+
+	/* Preallocate logical VCMDQs to VINTF0 */
+	for (lidx = 0; lidx < cmdqv->num_lvcmdqs_per_vintf; lidx++) {
+		struct tegra241_vcmdq *vcmdq;
+
+		vcmdq = tegra241_vintf_alloc_lvcmdq(vintf, lidx);
+		if (IS_ERR(vcmdq))
+			goto free_lvcmdq;
+	}
+
 #ifdef CONFIG_IOMMU_DEBUGFS
 	if (!cmdqv_debugfs_dir) {
 		cmdqv_debugfs_dir =
@@ -876,11 +812,19 @@ __tegra241_cmdqv_probe(struct arm_smmu_device *smmu, struct resource *res,
 	}
 #endif
 
-	/* Provide init-level ops only, until tegra241_cmdqv_init_structures */
-	new_smmu->impl_ops = &init_ops;
+	new_smmu->impl_ops = &tegra241_cmdqv_impl_ops;
 
 	return new_smmu;
 
+free_lvcmdq:
+	for (lidx--; lidx >= 0; lidx--)
+		tegra241_vintf_free_lvcmdq(vintf, lidx);
+	tegra241_cmdqv_deinit_vintf(cmdqv, vintf->idx);
+free_vintf:
+	kfree(vintf);
+destroy_ids:
+	ida_destroy(&cmdqv->vintf_ids);
+	kfree(cmdqv->vintfs);
 free_irq:
 	if (cmdqv->irq > 0)
 		free_irq(cmdqv->irq, cmdqv);

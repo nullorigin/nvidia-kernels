@@ -722,6 +722,7 @@ struct arm_smmu_impl_ops {
 /* An SMMUv3 instance */
 struct arm_smmu_device {
 	struct device			*dev;
+	struct device			*impl_dev;
 	const struct arm_smmu_impl_ops	*impl_ops;
 
 	void __iomem			*base;
@@ -1000,6 +1001,11 @@ static inline void arm_smmu_sva_notifier_synchronize(void) {}
 
 #define arm_smmu_sva_domain_alloc NULL
 
+static inline void arm_smmu_sva_remove_dev_pasid(struct iommu_domain *domain,
+						 struct device *dev,
+						 ioasid_t id)
+{
+}
 #endif /* CONFIG_ARM_SMMU_V3_SVA */
 
 #ifdef CONFIG_TEGRA241_CMDQV
@@ -1011,23 +1017,4 @@ tegra241_cmdqv_probe(struct arm_smmu_device *smmu)
 	return ERR_PTR(-ENODEV);
 }
 #endif /* CONFIG_TEGRA241_CMDQV */
-
-struct arm_vsmmu {
-	struct iommufd_viommu core;
-	struct arm_smmu_device *smmu;
-	struct arm_smmu_domain *s2_parent;
-	u16 vmid;
-};
-
-#if IS_ENABLED(CONFIG_ARM_SMMU_V3_IOMMUFD)
-void *arm_smmu_hw_info(struct device *dev, u32 *length, u32 *type);
-struct iommufd_viommu *arm_vsmmu_alloc(struct device *dev,
-				       struct iommu_domain *parent,
-				       struct iommufd_ctx *ictx,
-				       unsigned int viommu_type);
-#else
-#define arm_smmu_hw_info NULL
-#define arm_vsmmu_alloc NULL
-#endif /* CONFIG_ARM_SMMU_V3_IOMMUFD */
-
 #endif /* _ARM_SMMU_V3_H */
