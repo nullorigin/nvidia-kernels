@@ -374,18 +374,9 @@ static struct arm_smmu_cmdq *arm_smmu_get_cmdq(struct arm_smmu_device *smmu,
 	struct arm_smmu_cmdq *cmdq = NULL;
 
 	if (smmu->impl_ops && smmu->impl_ops->get_secondary_cmdq)
-		cmdq = smmu->impl_ops->get_secondary_cmdq(smmu, ent);
+		cmdq = smmu->impl_ops->get_secondary_cmdq(smmu);
 
 	return cmdq ?: &smmu->cmdq;
-}
-
-static bool arm_smmu_cmdq_needs_busy_polling(struct arm_smmu_device *smmu,
-					     struct arm_smmu_cmdq *cmdq)
-{
-	if (cmdq == &smmu->cmdq)
-		return false;
-
-	return smmu->options & ARM_SMMU_OPT_TEGRA241_CMDQV;
 }
 
 static bool arm_smmu_cmdq_needs_busy_polling(struct arm_smmu_device *smmu,
@@ -4632,8 +4623,7 @@ static struct arm_smmu_device *arm_smmu_impl_probe(struct arm_smmu_device *smmu)
 	struct arm_smmu_device *new_smmu = ERR_PTR(-ENODEV);
 	int ret;
 
-	if (smmu->impl_dev && (smmu->options & ARM_SMMU_OPT_TEGRA241_CMDQV))
-		new_smmu = tegra241_cmdqv_probe(smmu);
+	/* Add impl probe */
 
 	if (new_smmu == ERR_PTR(-ENODEV))
 		return smmu;

@@ -713,10 +713,15 @@ struct arm_smmu_strtab_cfg {
 	};
 };
 
+struct arm_smmu_impl_ops {
+	int (*device_reset)(struct arm_smmu_device *smmu);
+	void (*device_remove)(struct arm_smmu_device *smmu);
+	struct arm_smmu_cmdq *(*get_secondary_cmdq)(struct arm_smmu_device *smmu);
+};
+
 /* An SMMUv3 instance */
 struct arm_smmu_device {
 	struct device			*dev;
-	struct device			*impl_dev;
 	const struct arm_smmu_impl_ops	*impl_ops;
 
 	void __iomem			*base;
