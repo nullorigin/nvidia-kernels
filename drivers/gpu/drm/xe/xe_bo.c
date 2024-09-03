@@ -772,7 +772,7 @@ static int xe_bo_move(struct ttm_buffer_object *ttm_bo, bool evict,
 	if (xe_rpm_reclaim_safe(xe)) {
 		/*
 		 * We might be called through swapout in the validation path of
-		 * another TTM device, so acquire rpm here.
+		 * another TTM device, so unconditionally acquire rpm here.
 		 */
 		xe_pm_runtime_get(xe);
 	} else {
