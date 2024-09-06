@@ -1240,33 +1240,17 @@ static void arm_smmu_sync_cd(struct arm_smmu_master *master,
 	arm_smmu_cmdq_batch_submit(smmu, &cmds);
 }
 
-static int arm_smmu_alloc_cd_leaf_table(struct arm_smmu_device *smmu,
-					struct arm_smmu_l1_ctx_desc *l1_desc)
-{
-	size_t size = CTXDESC_L2_ENTRIES * (CTXDESC_CD_DWORDS << 3);
-
-	l1_desc->l2ptr = dma_alloc_coherent(smmu->dev, size,
-					    &l1_desc->l2ptr_dma, GFP_KERNEL);
-	if (!l1_desc->l2ptr) {
-		dev_warn(smmu->dev,
-			 "failed to allocate context descriptor table\n");
-		return -ENOMEM;
-	}
-	return 0;
-}
-
-static void arm_smmu_write_cd_l1_desc(__le64 *dst,
-				      struct arm_smmu_l1_ctx_desc *l1_desc)
+static void arm_smmu_write_cd_l1_desc(__le64 *dst, dma_addr_t l2ptr_dma)
 {
 	u64 val = (l2ptr_dma & CTXDESC_L1_DESC_L2PTR_MASK) | CTXDESC_L1_DESC_V;
 
 	/* The HW has 64 bit atomicity with stores to the L2 CD table */
-	WRITE_ONCE(dst->l2ptr, cpu_to_le64(val));
+	WRITE_ONCE(*dst, cpu_to_le64(val));
 }
 
-static dma_addr_t arm_smmu_cd_l1_get_desc(const struct arm_smmu_cdtab_l1 *src)
+static dma_addr_t arm_smmu_cd_l1_get_desc(const __le64 *src)
 {
-	return le64_to_cpu(src->l2ptr) & CTXDESC_L1_DESC_L2PTR_MASK;
+	return le64_to_cpu(*src) & CTXDESC_L1_DESC_L2PTR_MASK;
 }
 
 struct arm_smmu_cd *arm_smmu_get_cd_ptr(struct arm_smmu_master *master,
@@ -1305,15 +1289,19 @@ static struct arm_smmu_cd *arm_smmu_alloc_cd_ptr(struct arm_smmu_master *master,
 		unsigned int idx = arm_smmu_cdtab_l1_idx(ssid);
 		struct arm_smmu_cdtab_l2 **l2ptr = &cd_table->l2.l2ptrs[idx];
 
-		if (!*l2ptr) {
+		l1_desc = &cd_table->l1_desc[idx];
+		if (!l1_desc->l2ptr) {
 			dma_addr_t l2ptr_dma;
+			size_t size;
 
-			*l2ptr = dma_alloc_coherent(smmu->dev, sizeof(**l2ptr),
-						    &l2ptr_dma, GFP_KERNEL);
-			if (!*l2ptr)
+			size = CTXDESC_L2_ENTRIES * sizeof(struct arm_smmu_cd);
+			l1_desc->l2ptr = dma_alloc_coherent(smmu->dev, size,
+							    &l2ptr_dma,
+							    GFP_KERNEL);
+			if (!l1_desc->l2ptr)
 				return NULL;
 
-			arm_smmu_write_cd_l1_desc(&cd_table->l2.l1tab[idx],
+			arm_smmu_write_cd_l1_desc(&cd_table->cdtab[idx],
 						  l2ptr_dma);
 			/* An invalid L1CD can be cached */
 			arm_smmu_sync_cd(master, ssid, false);
@@ -1509,7 +1497,8 @@ static void arm_smmu_free_cd_tables(struct arm_smmu_master *master)
 
 			dma_free_coherent(smmu->dev, size,
 					  cd_table->l1_desc[i].l2ptr,
-					  cd_table->l1_desc[i].l2ptr_dma);
+					  arm_smmu_cd_l1_get_desc(
+						  &cd_table->cdtab[i]));
 		}
 		kfree(cd_table->l1_desc);
 
