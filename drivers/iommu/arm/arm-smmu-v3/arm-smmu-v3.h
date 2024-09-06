@@ -220,13 +220,6 @@ struct arm_smmu_ste {
 };
 
 #define STRTAB_NUM_L2_STES		(1 << STRTAB_SPLIT)
-struct arm_smmu_strtab_l2 {
-	struct arm_smmu_ste stes[STRTAB_NUM_L2_STES];
-};
-
-struct arm_smmu_strtab_l1 {
-	__le64 l2ptr;
-};
 #define STRTAB_MAX_L1_ENTRIES		(1 << 17)
 
 static inline u32 arm_smmu_strtab_l1_idx(u32 sid)
