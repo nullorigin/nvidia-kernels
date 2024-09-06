@@ -662,7 +662,7 @@ struct arm_smmu_ctx_desc {
 };
 
 struct arm_smmu_l1_ctx_desc {
-	struct arm_smmu_cd		*l2ptr;
+	struct arm_smmu_cdtab_l2	*l2ptr;
 };
 
 struct arm_smmu_ctx_desc_cfg {
