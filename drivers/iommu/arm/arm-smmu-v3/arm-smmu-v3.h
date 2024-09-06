@@ -657,10 +657,6 @@ struct arm_smmu_priq {
 };
 
 /* High-level stream table and context descriptor structures */
-struct arm_smmu_strtab_l1_desc {
-	struct arm_smmu_strtab_l2	*l2ptr;
-};
-
 struct arm_smmu_ctx_desc {
 	u16				asid;
 };
@@ -715,14 +711,8 @@ struct arm_smmu_strtab_cfg {
 			unsigned int num_l1_ents;
 		} l2;
 	};
-};
-
-struct arm_smmu_impl_ops {
-	int (*device_reset)(struct arm_smmu_device *smmu);
-	void (*device_remove)(struct arm_smmu_device *smmu);
-	int (*init_structures)(struct arm_smmu_device *smmu);
-	struct arm_smmu_cmdq *(*get_secondary_cmdq)(
-		struct arm_smmu_device *smmu, struct arm_smmu_cmdq_ent *ent);
+	u64				strtab_base;
+	u32				strtab_base_cfg;
 };
 
 /* An SMMUv3 instance */
