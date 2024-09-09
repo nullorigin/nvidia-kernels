@@ -139,13 +139,6 @@ struct ishtp_driver_data {
 	char *fw_generation;
 };
 
-struct ish_version {
-	u16 major;
-	u16 minor;
-	u16 hotfix;
-	u16 build;
-};
-
 /**
  * struct ishtp_device - ISHTP private device struct
  */
