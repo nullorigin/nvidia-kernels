@@ -710,8 +710,9 @@ void elv_iosched_load_module(struct gendisk *disk, const char *buf,
 	found = __elevator_find(name);
 	spin_unlock(&elv_list_lock);
 
-	if (!found)
-		request_module("%s-iosched", name);
+	request_module("%s-iosched", strstrip(elevator_name));
+
+	return 0;
 }
 
 ssize_t elv_iosched_store(struct gendisk *disk, const char *buf,
