@@ -1844,7 +1844,6 @@ static struct intel_uncore_type *lnl_mmio_uncores[] = {
 	&adl_uncore_imc,
 	&lnl_uncore_hbo,
 	&lnl_uncore_sncu,
-	&adl_uncore_imc_free_running,
 	NULL
 };
 
