@@ -56,7 +56,7 @@ MODULE_AUTHOR("Gareth Hughes, Leif Delgass, José Fonseca, Jon Smirl");
 MODULE_DESCRIPTION("DRM shared core routines");
 MODULE_LICENSE("GPL and additional rights");
 
-DEFINE_XARRAY_ALLOC(drm_minors_xa);
+static DEFINE_XARRAY_ALLOC(drm_minors_xa);
 
 /*
  * If the drm core fails to init for whatever reason,
@@ -119,27 +119,18 @@ static void drm_minor_alloc_release(struct drm_device *dev, void *data)
 
 	put_device(minor->kdev);
 
-	xa_erase(drm_minor_get_xa(minor->type), minor->index);
+	if (minor->type == DRM_MINOR_ACCEL)
+		accel_minor_remove(minor->index);
+	else
+		xa_erase(&drm_minors_xa, minor->index);
 }
 
-/*
- * DRM used to support 64 devices, for backwards compatibility we need to maintain the
- * minor allocation scheme where minors 0-63 are primary nodes, 64-127 are control nodes,
- * and 128-191 are render nodes.
- * After reaching the limit, we're allocating minors dynamically - first-come, first-serve.
- * Accel nodes are using a distinct major, so the minors are allocated in continuous 0-MAX
- * range.
- */
-#define DRM_MINOR_LIMIT(t) ({ \
-	typeof(t) _t = (t); \
-	_t == DRM_MINOR_ACCEL ? XA_LIMIT(0, ACCEL_MAX_MINORS) : XA_LIMIT(64 * _t, 64 * _t + 63); \
-})
-#define DRM_EXTENDED_MINOR_LIMIT XA_LIMIT(192, (1 << MINORBITS) - 1)
+#define DRM_MINOR_LIMIT(t) ({ typeof(t) _t = (t); XA_LIMIT(64 * _t, 64 * _t + 63); })
 
 static int drm_minor_alloc(struct drm_device *dev, enum drm_minor_type type)
 {
 	struct drm_minor *minor;
-	int r;
+	int index, r;
 
 	minor = drmm_kzalloc(dev, sizeof(*minor), GFP_KERNEL);
 	if (!minor)
@@ -148,13 +139,17 @@ static int drm_minor_alloc(struct drm_device *dev, enum drm_minor_type type)
 	minor->type = type;
 	minor->dev = dev;
 
-	r = xa_alloc(drm_minor_get_xa(type), &minor->index,
-		     NULL, DRM_MINOR_LIMIT(type), GFP_KERNEL);
-	if (r == -EBUSY && (type == DRM_MINOR_PRIMARY || type == DRM_MINOR_RENDER))
-		r = xa_alloc(&drm_minors_xa, &minor->index,
-			     NULL, DRM_EXTENDED_MINOR_LIMIT, GFP_KERNEL);
+	if (type == DRM_MINOR_ACCEL) {
+		r = accel_minor_alloc();
+		index = r;
+	} else {
+		r = xa_alloc(&drm_minors_xa, &index, NULL, DRM_MINOR_LIMIT(type), GFP_KERNEL);
+	}
+
 	if (r < 0)
 		return r;
+
+	minor->index = index;
 
 	r = drmm_add_action_or_reset(dev, drm_minor_alloc_release, minor);
 	if (r)
@@ -194,10 +189,15 @@ static int drm_minor_register(struct drm_device *dev, enum drm_minor_type type)
 		goto err_debugfs;
 
 	/* replace NULL with @minor so lookups will succeed from now on */
-	entry = xa_store(drm_minor_get_xa(type), minor->index, minor, GFP_KERNEL);
-	if (xa_is_err(entry)) {
-		ret = xa_err(entry);
-		goto err_debugfs;
+	if (minor->type == DRM_MINOR_ACCEL) {
+		accel_minor_replace(minor, minor->index);
+	} else {
+		entry = xa_store(&drm_minors_xa, minor->index, minor, GFP_KERNEL);
+		if (xa_is_err(entry)) {
+			ret = xa_err(entry);
+			goto err_debugfs;
+		}
+		WARN_ON(entry);
 	}
 	WARN_ON(entry);
 
@@ -218,7 +218,10 @@ static void drm_minor_unregister(struct drm_device *dev, enum drm_minor_type typ
 		return;
 
 	/* replace @minor with NULL so lookups will fail from now on */
-	xa_store(drm_minor_get_xa(type), minor->index, NULL, GFP_KERNEL);
+	if (minor->type == DRM_MINOR_ACCEL)
+		accel_minor_replace(NULL, minor->index);
+	else
+		xa_store(&drm_minors_xa, minor->index, NULL, GFP_KERNEL);
 
 	device_del(minor->kdev);
 	dev_set_drvdata(minor->kdev, NULL); /* safety belt */
@@ -238,11 +241,11 @@ struct drm_minor *drm_minor_acquire(struct xarray *minor_xa, unsigned int minor_
 {
 	struct drm_minor *minor;
 
-	xa_lock(minor_xa);
-	minor = xa_load(minor_xa, minor_id);
+	xa_lock(&drm_minors_xa);
+	minor = xa_load(&drm_minors_xa, minor_id);
 	if (minor)
 		drm_dev_get(minor->dev);
-	xa_unlock(minor_xa);
+	xa_unlock(&drm_minors_xa);
 
 	if (!minor) {
 		return ERR_PTR(-ENODEV);
