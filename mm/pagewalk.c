@@ -853,7 +853,8 @@ struct folio *folio_walk_start(struct folio_walk *fw,
 	pud = pudp_get(pudp);
 	if (pud_none(pud))
 		goto not_found;
-	if (IS_ENABLED(CONFIG_PGTABLE_HAS_HUGE_LEAVES) && pud_leaf(pud)) {
+	if (IS_ENABLED(CONFIG_PGTABLE_HAS_HUGE_LEAVES) &&
+	    (!pud_present(pud) || pud_leaf(pud))) {
 		ptl = pud_lock(vma->vm_mm, pudp);
 		pud = pudp_get(pudp);
 
@@ -862,6 +863,10 @@ struct folio *folio_walk_start(struct folio_walk *fw,
 		fw->pudp = pudp;
 		fw->pud = pud;
 
+		/*
+		 * TODO: FW_MIGRATION support for PUD migration entries
+		 * once there are relevant users.
+		 */
 		if (!pud_present(pud) || pud_devmap(pud) || pud_special(pud)) {
 			spin_unlock(ptl);
 			goto not_found;
@@ -878,12 +883,13 @@ struct folio *folio_walk_start(struct folio_walk *fw,
 	}
 
 pmd_table:
-	VM_WARN_ON_ONCE(pud_leaf(*pudp));
+	VM_WARN_ON_ONCE(!pud_present(pud) || pud_leaf(pud));
 	pmdp = pmd_offset(pudp, addr);
 	pmd = pmdp_get_lockless(pmdp);
 	if (pmd_none(pmd))
 		goto not_found;
-	if (IS_ENABLED(CONFIG_PGTABLE_HAS_HUGE_LEAVES) && pmd_leaf(pmd)) {
+	if (IS_ENABLED(CONFIG_PGTABLE_HAS_HUGE_LEAVES) &&
+	    (!pmd_present(pmd) || pmd_leaf(pmd))) {
 		ptl = pmd_lock(vma->vm_mm, pmdp);
 		pmd = pmdp_get(pmdp);
 
@@ -895,7 +901,7 @@ pmd_table:
 		if (pmd_none(pmd)) {
 			spin_unlock(ptl);
 			goto not_found;
-		} else if (!pmd_leaf(pmd)) {
+		} else if (pmd_present(pmd) && !pmd_leaf(pmd)) {
 			spin_unlock(ptl);
 			goto pte_table;
 		} else if (pmd_present(pmd)) {
@@ -921,7 +927,7 @@ pmd_table:
 	}
 
 pte_table:
-	VM_WARN_ON_ONCE(pmd_leaf(pmdp_get_lockless(pmdp)));
+	VM_WARN_ON_ONCE(!pmd_present(pmd) || pmd_leaf(pmd));
 	ptep = pte_offset_map_lock(vma->vm_mm, pmdp, addr, &ptl);
 	if (!ptep)
 		goto not_found;
