@@ -173,12 +173,10 @@ enum {
 	IOPT_PAGES_ACCOUNT_NONE = 0,
 	IOPT_PAGES_ACCOUNT_USER = 1,
 	IOPT_PAGES_ACCOUNT_MM = 2,
-	IOPT_PAGES_ACCOUNT_MODE_NUM = 3,
 };
 
 enum iopt_address_type {
 	IOPT_ADDRESS_USER = 0,
-	IOPT_ADDRESS_FILE = 1,
 };
 
 /*
@@ -204,10 +202,6 @@ struct iopt_pages {
 	enum iopt_address_type type;
 	union {
 		void __user *uptr;		/* IOPT_ADDRESS_USER */
-		struct {			/* IOPT_ADDRESS_FILE */
-			struct file *file;
-			unsigned long start;
-		};
 	};
 	bool writable:1;
 	u8 account_mode;
@@ -220,8 +214,6 @@ struct iopt_pages {
 };
 
 struct iopt_pages *iopt_alloc_user_pages(void __user *uptr,
-					 unsigned long length, bool writable);
-struct iopt_pages *iopt_alloc_file_pages(struct file *file, unsigned long start,
 					 unsigned long length, bool writable);
 void iopt_release_pages(struct kref *kref);
 static inline void iopt_put_pages(struct iopt_pages *pages)

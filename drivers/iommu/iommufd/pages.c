@@ -1341,26 +1341,6 @@ struct iopt_pages *iopt_alloc_user_pages(void __user *uptr,
 	return pages;
 }
 
-struct iopt_pages *iopt_alloc_file_pages(struct file *file, unsigned long start,
-					 unsigned long length, bool writable)
-
-{
-	struct iopt_pages *pages;
-	unsigned long start_down = ALIGN_DOWN(start, PAGE_SIZE);
-	unsigned long end;
-
-	if (length && check_add_overflow(start, length - 1, &end))
-		return ERR_PTR(-EOVERFLOW);
-
-	pages = iopt_alloc_pages(start - start_down, length, writable);
-	if (IS_ERR(pages))
-		return pages;
-	pages->file = get_file(file);
-	pages->start = start_down;
-	pages->type = IOPT_ADDRESS_FILE;
-	return pages;
-}
-
 void iopt_release_pages(struct kref *kref)
 {
 	struct iopt_pages *pages = container_of(kref, struct iopt_pages, kref);
