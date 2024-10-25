@@ -1149,15 +1149,8 @@ static int pfn_reader_fill_span(struct pfn_reader *pfns)
 
 	npages = user->upages_end - start_index;
 	start_index -= user->upages_start;
-	rc = 0;
-
-	if (!user->file)
-		batch_from_pages(&pfns->batch, user->upages + start_index,
-				 npages);
-	else
-		rc = batch_from_folios(&pfns->batch, &user->ufolios_next,
-				       &user->ufolios_offset, npages);
-	return rc;
+	batch_from_pages(&pfns->batch, user->upages + start_index, npages);
+	return 0;
 }
 
 static bool pfn_reader_done(struct pfn_reader *pfns)
@@ -1239,14 +1232,7 @@ static void pfn_reader_release_pins(struct pfn_reader *pfns)
 		unsigned long start_index = pfns->batch_end_index -
 					    user->upages_start;
 
-		if (!user->file) {
-			unpin_user_pages(user->upages + start_index, npages);
-		} else {
-			long n = user->ufolios_len / sizeof(*user->ufolios);
-
-			unpin_folios(user->ufolios_next,
-				     user->ufolios + n - user->ufolios_next);
-		}
+		unpin_user_pages(user->upages + start_index, npages);
 		iopt_pages_sub_npinned(pages, npages);
 		user->upages_end = pfns->batch_end_index;
 	}
