@@ -134,10 +134,6 @@ TEST_F(iommufd, cmd_length)
 	TEST_LENGTH(iommu_option, IOMMU_OPTION, val64);
 	TEST_LENGTH(iommu_vfio_ioas, IOMMU_VFIO_IOAS, __reserved);
 	TEST_LENGTH(iommu_ioas_map_file, IOMMU_IOAS_MAP_FILE, iova);
-	TEST_LENGTH(iommu_viommu_alloc, IOMMU_VIOMMU_ALLOC, out_viommu_id);
-	TEST_LENGTH(iommu_vdevice_alloc, IOMMU_VDEVICE_ALLOC, virt_id);
-	TEST_LENGTH(iommu_ioas_change_process, IOMMU_IOAS_CHANGE_PROCESS,
-		    __reserved);
 #undef TEST_LENGTH
 }
 
