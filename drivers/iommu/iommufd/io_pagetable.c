@@ -132,13 +132,6 @@ static int iopt_alloc_iova(struct io_pagetable *iopt, unsigned long *iova,
 				       roundup_pow_of_two(length),
 				       1UL << __ffs64(addr));
 
-#ifdef CONFIG_TRANSPARENT_HUGEPAGE
-	max_alignment = HPAGE_SIZE;
-#endif
-	/* Protect against ALIGN() overflow */
-	if (iova_alignment >= max_alignment)
-		iova_alignment = max_alignment;
-
 	if (iova_alignment < iopt->iova_alignment)
 		return -EINVAL;
 
@@ -268,14 +261,7 @@ static int iopt_alloc_area_pages(struct io_pagetable *iopt,
 		/* Use the first entry to guess the ideal IOVA alignment */
 		elm = list_first_entry(pages_list, struct iopt_pages_list,
 				       next);
-		switch (elm->pages->type) {
-		case IOPT_ADDRESS_USER:
-			start = elm->start_byte + (uintptr_t)elm->pages->uptr;
-			break;
-		case IOPT_ADDRESS_FILE:
-			start = elm->start_byte + elm->pages->start;
-			break;
-		}
+		start = elm->start_byte + (uintptr_t)elm->pages->uptr;
 		rc = iopt_alloc_iova(iopt, dst_iova, start, length);
 		if (rc)
 			goto out_unlock;
