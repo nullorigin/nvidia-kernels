@@ -46,10 +46,6 @@
  * ULONG_MAX so last_index + 1 cannot overflow.
  */
 #include <linux/file.h>
-#include <linux/highmem.h>
-#include <linux/iommu.h>
-#include <linux/iommufd.h>
-#include <linux/kthread.h>
 #include <linux/overflow.h>
 #include <linux/slab.h>
 #include <linux/sched/mm.h>
@@ -1338,6 +1334,26 @@ struct iopt_pages *iopt_alloc_user_pages(void __user *uptr,
 		return pages;
 	pages->uptr = uptr_down;
 	pages->type = IOPT_ADDRESS_USER;
+	return pages;
+}
+
+struct iopt_pages *iopt_alloc_file_pages(struct file *file, unsigned long start,
+					 unsigned long length, bool writable)
+
+{
+	struct iopt_pages *pages;
+	unsigned long start_down = ALIGN_DOWN(start, PAGE_SIZE);
+	unsigned long end;
+
+	if (length && check_add_overflow(start, length - 1, &end))
+		return ERR_PTR(-EOVERFLOW);
+
+	pages = iopt_alloc_pages(start - start_down, length, writable);
+	if (IS_ERR(pages))
+		return pages;
+	pages->file = get_file(file);
+	pages->start = start_down;
+	pages->type = IOPT_ADDRESS_FILE;
 	return pages;
 }
 
