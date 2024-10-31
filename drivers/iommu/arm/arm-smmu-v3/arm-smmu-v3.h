@@ -1023,4 +1023,11 @@ tegra241_cmdqv_probe(struct arm_smmu_device *smmu)
 	return ERR_PTR(-ENODEV);
 }
 #endif /* CONFIG_TEGRA241_CMDQV */
+
+#if IS_ENABLED(CONFIG_ARM_SMMU_V3_IOMMUFD)
+void *arm_smmu_hw_info(struct device *dev, u32 *length, u32 *type);
+#else
+#define arm_smmu_hw_info NULL
+#endif /* CONFIG_ARM_SMMU_V3_IOMMUFD */
+
 #endif /* _ARM_SMMU_V3_H */
