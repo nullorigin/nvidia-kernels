@@ -744,8 +744,8 @@ struct iommu_hwpt_get_dirty_bitmap {
  * @IOMMU_VIOMMU_INVALIDATE_DATA_ARM_SMMUV3: Invalidation data for ARM SMMUv3
  */
 enum iommu_hwpt_invalidate_data_type {
-  IOMMU_HWPT_INVALIDATE_DATA_VTD_S1 = 0,
-  IOMMU_VIOMMU_INVALIDATE_DATA_ARM_SMMUV3 = 1,
+	IOMMU_HWPT_INVALIDATE_DATA_VTD_S1 = 0,
+	IOMMU_VIOMMU_INVALIDATE_DATA_ARM_SMMUV3 = 1,
 };
 
 /**
@@ -785,7 +785,7 @@ struct iommu_hwpt_vtd_s1_invalidate {
 };
 
 /**
- * struct iommu_viommu_arm_smmuv3_invalidate - ARM SMMUv3 cache invalidation
+ * struct iommu_viommu_arm_smmuv3_invalidate - ARM SMMUv3 cahce invalidation
  *         (IOMMU_VIOMMU_INVALIDATE_DATA_ARM_SMMUV3)
  * @cmd: 128-bit cache invalidation command that runs in SMMU CMDQ.
  *       Must be little-endian.
@@ -803,7 +803,7 @@ struct iommu_hwpt_vtd_s1_invalidate {
  * -EIO will be returned if the command is not supported.
  */
 struct iommu_viommu_arm_smmuv3_invalidate {
-  __aligned_le64 cmd[2];
+	__aligned_le64 cmd[2];
 };
 
 /**
