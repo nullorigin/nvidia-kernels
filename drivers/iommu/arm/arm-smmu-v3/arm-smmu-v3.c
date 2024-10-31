@@ -3202,9 +3202,7 @@ arm_smmu_domain_alloc_paging_flags(struct device *dev, u32 flags,
 				   const struct iommu_user_data *user_data)
 {
 	struct arm_smmu_master *master = dev_iommu_priv_get(dev);
-	struct arm_smmu_device *smmu = master->smmu;
 	const u32 PAGING_FLAGS = IOMMU_HWPT_ALLOC_DIRTY_TRACKING |
-				 IOMMU_HWPT_ALLOC_PASID |
 				 IOMMU_HWPT_ALLOC_NEST_PARENT;
 	struct arm_smmu_domain *smmu_domain;
 	int ret;
@@ -3215,37 +3213,15 @@ arm_smmu_domain_alloc_paging_flags(struct device *dev, u32 flags,
 		return ERR_PTR(-EOPNOTSUPP);
 
 	smmu_domain = arm_smmu_domain_alloc();
-	if (IS_ERR(smmu_domain))
-		return ERR_CAST(smmu_domain);
+	if (!smmu_domain)
+		return ERR_PTR(-ENOMEM);
 
-	switch (flags) {
-	case 0:
-		/* Prefer S1 if available */
-		if (smmu->features & ARM_SMMU_FEAT_TRANS_S1)
-			smmu_domain->stage = ARM_SMMU_DOMAIN_S1;
-		else
-			smmu_domain->stage = ARM_SMMU_DOMAIN_S2;
-		break;
-	case IOMMU_HWPT_ALLOC_NEST_PARENT:
-		if (!(smmu->features & ARM_SMMU_FEAT_NESTING)) {
+	if (flags & IOMMU_HWPT_ALLOC_NEST_PARENT) {
+		if (!(master->smmu->features & ARM_SMMU_FEAT_NESTING)) {
 			ret = -EOPNOTSUPP;
 			goto err_free;
 		}
 		smmu_domain->stage = ARM_SMMU_DOMAIN_S2;
-		smmu_domain->nest_parent = true;
-		break;
-	case IOMMU_HWPT_ALLOC_DIRTY_TRACKING:
-	case IOMMU_HWPT_ALLOC_DIRTY_TRACKING | IOMMU_HWPT_ALLOC_PASID:
-	case IOMMU_HWPT_ALLOC_PASID:
-		if (!(smmu->features & ARM_SMMU_FEAT_TRANS_S1)) {
-			ret = -EOPNOTSUPP;
-			goto err_free;
-		}
-		smmu_domain->stage = ARM_SMMU_DOMAIN_S1;
-		break;
-	default:
-		ret = -EOPNOTSUPP;
-		goto err_free;
 	}
 
 	smmu_domain->domain.type = IOMMU_DOMAIN_UNMANAGED;
