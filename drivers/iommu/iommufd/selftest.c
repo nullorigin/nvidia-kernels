@@ -145,16 +145,6 @@ to_mock_nested(struct iommu_domain *domain)
 	return container_of(domain, struct mock_iommu_domain_nested, domain);
 }
 
-struct mock_viommu {
-	struct iommufd_viommu core;
-	struct mock_iommu_domain *s2_parent;
-};
-
-static inline struct mock_viommu *to_mock_viommu(struct iommufd_viommu *viommu)
-{
-	return container_of(viommu, struct mock_viommu, core);
-}
-
 enum selftest_obj_type {
 	TYPE_IDEV,
 };
@@ -311,20 +301,31 @@ static const struct iommu_dirty_ops dirty_ops = {
 	.read_and_clear_dirty = mock_domain_read_and_clear_dirty,
 };
 
-static struct mock_iommu_domain_nested *
-__mock_domain_alloc_nested(const struct iommu_user_data *user_data)
+static struct iommu_domain *mock_domain_alloc_paging(struct device *dev)
+{
+	struct mock_dev *mdev = to_mock_dev(dev);
+	struct mock_iommu_domain *mock;
+
+	mock = kzalloc(sizeof(*mock), GFP_KERNEL);
+	if (!mock)
+		return NULL;
+	mock->domain.geometry.aperture_start = MOCK_APERTURE_START;
+	mock->domain.geometry.aperture_end = MOCK_APERTURE_LAST;
+	mock->domain.pgsize_bitmap = MOCK_IO_PAGE_SIZE;
+	if (dev && mdev->flags & MOCK_FLAGS_DEVICE_HUGE_IOVA)
+		mock->domain.pgsize_bitmap |= MOCK_HUGE_PAGE_SIZE;
+	mock->domain.ops = mock_ops.default_domain_ops;
+	mock->domain.type = IOMMU_DOMAIN_UNMANAGED;
+	xa_init(&mock->pfns);
+	return &mock->domain;
+}
+
+static struct iommu_domain *
+__mock_domain_alloc_nested(struct mock_iommu_domain *mock_parent,
+			   const struct iommu_hwpt_selftest *user_cfg)
 {
 	struct mock_iommu_domain_nested *mock_nested;
-	struct iommu_hwpt_selftest user_cfg;
-	int rc, i;
-
-	if (user_data->type != IOMMU_HWPT_DATA_SELFTEST)
-		return ERR_PTR(-EOPNOTSUPP);
-
-	rc = iommu_copy_struct_from_user(&user_cfg, user_data,
-					 IOMMU_HWPT_DATA_SELFTEST, iotlb);
-	if (rc)
-		return ERR_PTR(rc);
+	int i;
 
 	mock_nested = kzalloc(sizeof(*mock_nested), GFP_KERNEL);
 	if (!mock_nested)
@@ -342,8 +343,31 @@ mock_domain_alloc_nested(struct device *dev, struct iommu_domain *parent,
 {
 	struct mock_iommu_domain_nested *mock_nested;
 	struct mock_iommu_domain *mock_parent;
+	struct iommu_hwpt_selftest user_cfg;
+	int rc;
 
-	if (flags)
+	/* must be mock_domain */
+	if (!parent) {
+		struct mock_dev *mdev = to_mock_dev(dev);
+		bool has_dirty_flag = flags & IOMMU_HWPT_ALLOC_DIRTY_TRACKING;
+		bool no_dirty_ops = mdev->flags & MOCK_FLAGS_DEVICE_NO_DIRTY;
+		struct iommu_domain *domain;
+
+		if (flags & (~(IOMMU_HWPT_ALLOC_NEST_PARENT |
+			       IOMMU_HWPT_ALLOC_DIRTY_TRACKING)))
+			return ERR_PTR(-EOPNOTSUPP);
+		if (user_data || (has_dirty_flag && no_dirty_ops))
+			return ERR_PTR(-EOPNOTSUPP);
+		domain = mock_domain_alloc_paging(dev);
+		if (!domain)
+			return ERR_PTR(-ENOMEM);
+		if (has_dirty_flag)
+			domain->dirty_ops = &dirty_ops;
+		return domain;
+	}
+
+	/* must be mock_domain_nested */
+	if (user_data->type != IOMMU_HWPT_DATA_SELFTEST || flags)
 		return ERR_PTR(-EOPNOTSUPP);
 	if (!parent || parent->ops != mock_ops.default_domain_ops)
 		return ERR_PTR(-EINVAL);
