@@ -24,16 +24,16 @@ struct file;
 struct iommu_group;
 
 enum iommufd_object_type {
-	IOMMUFD_OBJ_NONE,
-	IOMMUFD_OBJ_ANY = IOMMUFD_OBJ_NONE,
-	IOMMUFD_OBJ_DEVICE,
-	IOMMUFD_OBJ_HWPT_PAGING,
-	IOMMUFD_OBJ_HWPT_NESTED,
-	IOMMUFD_OBJ_IOAS,
-	IOMMUFD_OBJ_ACCESS,
-	IOMMUFD_OBJ_FAULT,
-	IOMMUFD_OBJ_VIOMMU,
-	IOMMUFD_OBJ_VDEVICE,
+  IOMMUFD_OBJ_NONE,
+  IOMMUFD_OBJ_ANY = IOMMUFD_OBJ_NONE,
+  IOMMUFD_OBJ_DEVICE,
+  IOMMUFD_OBJ_HWPT_PAGING,
+  IOMMUFD_OBJ_HWPT_NESTED,
+  IOMMUFD_OBJ_IOAS,
+  IOMMUFD_OBJ_ACCESS,
+  IOMMUFD_OBJ_FAULT,
+  IOMMUFD_OBJ_VIOMMU,
+  IOMMUFD_OBJ_VDEVICE,
 #ifdef CONFIG_IOMMUFD_TEST
   IOMMUFD_OBJ_SELFTEST,
 #endif
@@ -91,9 +91,9 @@ struct iommufd_viommu {
   struct iommu_device *iommu_dev;
   struct iommufd_hwpt_paging *hwpt;
 
-	const struct iommufd_viommu_ops *ops;
+  const struct iommufd_viommu_ops *ops;
 
-	struct xarray vdevs;
+  struct xarray vdevs;
 
   unsigned int type;
 };
@@ -117,11 +117,11 @@ struct iommufd_viommu {
  */
 struct iommufd_viommu_ops {
   void (*destroy)(struct iommufd_viommu *viommu);
-	struct iommu_domain *(*alloc_domain_nested)(
-		struct iommufd_viommu *viommu, u32 flags,
-		const struct iommu_user_data *user_data);
-	int (*cache_invalidate)(struct iommufd_viommu *viommu,
-				struct iommu_user_data_array *array);
+  struct iommu_domain *(*alloc_domain_nested)(
+      struct iommufd_viommu *viommu, u32 flags,
+      const struct iommu_user_data *user_data);
+  int (*cache_invalidate)(struct iommufd_viommu *viommu,
+                          struct iommu_user_data_array *array);
 };
 
 #if IS_ENABLED(CONFIG_IOMMUFD)
@@ -178,11 +178,18 @@ static inline int iommufd_vfio_compat_set_no_iommu(struct iommufd_ctx *ictx) {
 struct iommufd_object *_iommufd_object_alloc(struct iommufd_ctx *ictx,
                                              size_t size,
                                              enum iommufd_object_type type);
+struct device *iommufd_viommu_find_dev(struct iommufd_viommu *viommu,
+                                       unsigned long vdev_id);
 #else  /* !CONFIG_IOMMUFD_DRIVER_CORE */
 static inline struct iommufd_object *
 _iommufd_object_alloc(struct iommufd_ctx *ictx, size_t size,
                       enum iommufd_object_type type) {
   return ERR_PTR(-EOPNOTSUPP);
+}
+
+static inline struct device *
+iommufd_viommu_find_dev(struct iommufd_viommu *viommu, unsigned long vdev_id) {
+  return NULL;
 }
 #endif /* CONFIG_IOMMUFD_DRIVER_CORE */
 
