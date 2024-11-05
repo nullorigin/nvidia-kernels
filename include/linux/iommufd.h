@@ -166,38 +166,14 @@ static inline int iommufd_vfio_compat_set_no_iommu(struct iommufd_ctx *ictx) {
 
 #if IS_ENABLED(CONFIG_IOMMUFD_DRIVER_CORE)
 struct iommufd_object *_iommufd_object_alloc(struct iommufd_ctx *ictx,
-                                             size_t size,
-                                             enum iommufd_object_type type);
-struct device *iommufd_viommu_find_dev(struct iommufd_viommu *viommu,
-                                       unsigned long vdev_id);
-#else  /* !CONFIG_IOMMUFD_DRIVER_CORE */
+					     size_t size,
+					     enum iommufd_object_type type);
+#else /* !CONFIG_IOMMUFD_DRIVER_CORE */
 static inline struct iommufd_object *
 _iommufd_object_alloc(struct iommufd_ctx *ictx, size_t size,
-                      enum iommufd_object_type type) {
-  return ERR_PTR(-EOPNOTSUPP);
-}
-
-static inline struct device *
-iommufd_viommu_find_dev(struct iommufd_viommu *viommu, unsigned long vdev_id) {
-  return NULL;
+		      enum iommufd_object_type type)
+{
+	return ERR_PTR(-EOPNOTSUPP);
 }
 #endif /* CONFIG_IOMMUFD_DRIVER_CORE */
-
-/*
- * Helpers for IOMMU driver to allocate driver structures that will be freed by
- * the iommufd core. The free op will be called prior to freeing the memory.
- */
-#define iommufd_viommu_alloc(ictx, drv_struct, member, viommu_ops)             \
-  ({                                                                           \
-    drv_struct *ret;                                                           \
-                                                                               \
-    static_assert(                                                             \
-        __same_type(struct iommufd_viommu, ((drv_struct *)NULL)->member));     \
-    static_assert(offsetof(drv_struct, member.obj) == 0);                      \
-    ret = (drv_struct *)_iommufd_object_alloc(ictx, sizeof(drv_struct),        \
-                                              IOMMUFD_OBJ_VIOMMU);             \
-    if (!IS_ERR(ret))                                                          \
-      ret->member.ops = viommu_ops;                                            \
-    ret;                                                                       \
-  })
 #endif
