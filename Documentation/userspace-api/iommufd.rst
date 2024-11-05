@@ -41,27 +41,11 @@ Following IOMMUFD objects are exposed to userspace:
 - IOMMUFD_OBJ_DEVICE, representing a device that is bound to iommufd by an
   external driver.
 
-- IOMMUFD_OBJ_HWPT_PAGING, representing an actual hardware I/O page table
-  (i.e. a single struct iommu_domain) managed by the iommu driver. "PAGING"
-  primarly indicates this type of HWPT should be linked to an IOAS. It also
-  indicates that it is backed by an iommu_domain with __IOMMU_DOMAIN_PAGING
-  feature flag. This can be either an UNMANAGED stage-1 domain for a device
-  running in the user space, or a nesting parent stage-2 domain for mappings
-  from guest-level physical addresses to host-level physical addresses.
+- IOMMUFD_OBJ_HW_PAGETABLE, representing an actual hardware I/O page table
+  (i.e. a single struct iommu_domain) managed by the iommu driver.
 
-  The IOAS has a list of HWPT_PAGINGs that share the same IOVA mapping and
-  it will synchronize its mapping with each member HWPT_PAGING.
-
-- IOMMUFD_OBJ_HWPT_NESTED, representing an actual hardware I/O page table
-  (i.e. a single struct iommu_domain) managed by user space (e.g. guest OS).
-  "NESTED" indicates that this type of HWPT should be linked to an HWPT_PAGING.
-  It also indicates that it is backed by an iommu_domain that has a type of
-  IOMMU_DOMAIN_NESTED. This must be a stage-1 domain for a device running in
-  the user space (e.g. in a guest VM enabling the IOMMU nested translation
-  feature.) As such, it must be created with a given nesting parent stage-2
-  domain to associate to. This nested stage-1 page table managed by the user
-  space usually has mappings from guest-level I/O virtual addresses to guest-
-  level physical addresses.
+  The IOAS has a list of HW_PAGETABLES that share the same IOVA mapping and
+  it will synchronize its mapping with each member HW_PAGETABLE.
 
 - IOMMUFD_OBJ_VIOMMU, representing a slice of the physical IOMMU instance,
   passed to or shared with a VM. It may be some HW-accelerated virtualization
@@ -96,68 +80,52 @@ Following IOMMUFD objects are exposed to userspace:
      backed by corresponding vIOMMU objects, in which case a guest OS would do
      the "dispatch" naturally instead of VMM trappings.
 
-- IOMMUFD_OBJ_VDEVICE, representing a virtual device for an IOMMUFD_OBJ_DEVICE
-  against an IOMMUFD_OBJ_VIOMMU. This virtual device holds the device's virtual
-  information or attributes (related to the vIOMMU) in a VM. An immediate vDATA
-  example can be the virtual ID of the device on a vIOMMU, which is a unique ID
-  that VMM assigns to the device for a translation channel/port of the vIOMMU,
-  e.g. vSID of ARM SMMUv3, vDeviceID of AMD IOMMU, and vRID of Intel VT-d to a
-  Context Table. Potential use cases of some advanced security information can
-  be forwarded via this object too, such as security level or realm information
-  in a Confidential Compute Architecture. A VMM should create a vDEVICE object
-  to forward all the device information in a VM, when it connects a device to a
-  vIOMMU, which is a separate ioctl call from attaching the same device to an
-  HWPT_PAGING that the vIOMMU holds.
-
 All user-visible objects are destroyed via the IOMMU_DESTROY uAPI.
 
 The diagrams below show relationships between user-visible objects and kernel
 datastructures (external to iommufd), with numbers referred to operations
 creating the objects and links::
 
-  _______________________________________________________________________
- |                      iommufd (HWPT_PAGING only)                       |
- |                                                                       |
- |        [1]                  [3]                                [2]    |
- |  ________________      _____________                        ________  |
- | |                |    |             |                      |        | |
- | |      IOAS      |<---| HWPT_PAGING |<---------------------| DEVICE | |
- | |________________|    |_____________|                      |________| |
- |         |                    |                                  |     |
- |_________|____________________|__________________________________|_____|
-           |                    |                                  |
-           |              ______v_____                          ___v__
-           | PFN storage |  (paging)  |                        |struct|
-           |------------>|iommu_domain|<-----------------------|device|
-                         |____________|                        |______|
+  _________________________________________________________
+ |                         iommufd                         |
+ |       [1]                                               |
+ |  _________________                                      |
+ | |                 |                                     |
+ | |                 |                                     |
+ | |                 |                                     |
+ | |                 |                                     |
+ | |                 |                                     |
+ | |                 |                                     |
+ | |                 |        [3]                 [2]      |
+ | |                 |    ____________         __________  |
+ | |      IOAS       |<--|            |<------|          | |
+ | |                 |   |HW_PAGETABLE|       |  DEVICE  | |
+ | |                 |   |____________|       |__________| |
+ | |                 |         |                   |       |
+ | |                 |         |                   |       |
+ | |                 |         |                   |       |
+ | |                 |         |                   |       |
+ | |                 |         |                   |       |
+ | |_________________|         |                   |       |
+ |         |                   |                   |       |
+ |_________|___________________|___________________|_______|
+           |                   |                   |
+           |              _____v______      _______v_____
+           | PFN storage |            |    |             |
+           |------------>|iommu_domain|    |struct device|
+                         |____________|    |_____________|
 
   _______________________________________________________________________
- |                      iommufd (with HWPT_NESTED)                       |
+ |                      iommufd (with vIOMMU)                            |
  |                                                                       |
- |        [1]                  [3]                [4]             [2]    |
- |  ________________      _____________      _____________     ________  |
- | |                |    |             |    |             |   |        | |
- | |      IOAS      |<---| HWPT_PAGING |<---| HWPT_NESTED |<--| DEVICE | |
- | |________________|    |_____________|    |_____________|   |________| |
- |         |                    |                  |               |     |
- |_________|____________________|__________________|_______________|_____|
-           |                    |                  |               |
-           |              ______v_____       ______v_____       ___v__
-           | PFN storage |  (paging)  |     |  (nested)  |     |struct|
-           |------------>|iommu_domain|<----|iommu_domain|<----|device|
-                         |____________|     |____________|     |______|
-
-  _______________________________________________________________________
- |                      iommufd (with vIOMMU/vDEVICE)                    |
- |                                                                       |
- |                             [5]                [6]                    |
- |                        _____________      _____________               |
- |                       |             |    |             |              |
- |      |----------------|    vIOMMU   |<---|   vDEVICE   |<----|        |
- |      |                |             |    |_____________|     |        |
- |      |                |             |                        |        |
- |      |      [1]       |             |          [4]           | [2]    |
- |      |     ______     |             |     _____________     _|______  |
+ |                             [5]                                       |
+ |                        _____________                                  |
+ |                       |             |                                 |
+ |      |----------------|    vIOMMU   |                                 |
+ |      |                |             |                                 |
+ |      |                |             |                                 |
+ |      |      [1]       |             |          [4]             [2]    |
+ |      |     ______     |             |     _____________     ________  |
  |      |    |      |    |     [3]     |    |             |   |        | |
  |      |    | IOAS |<---|(HWPT_PAGING)|<---| HWPT_NESTED |<--| DEVICE | |
  |      |    |______|    |_____________|    |_____________|   |________| |
@@ -191,7 +159,6 @@ creating the objects and links::
      an iommu_domain to userspace will be created, and then added to the list.
      Successful completion of this operation sets up the linkages among IOAS,
      device and iommu_domain. Once this completes the device could do DMA.
-
    * IOMMUFD_OBJ_HWPT_PAGING can be manually created via the IOMMU_HWPT_ALLOC
      uAPI, provided an ioas_id via @pt_id to associate the new HWPT_PAGING to
      the corresponding IOAS object. The benefit of this manual allocation is to
@@ -214,9 +181,8 @@ creating the objects and links::
 
    .. note::
 
-      Either a manual IOMMUFD_OBJ_HWPT_PAGING or an IOMMUFD_OBJ_HWPT_NESTED is
-      created via the same IOMMU_HWPT_ALLOC uAPI. The difference is at the type
-      of the object passed in via the @pt_id field of struct iommufd_hwpt_alloc.
+      Future IOMMUFD updates will provide an API to create and manipulate the
+      HW_PAGETABLE directly.
 
 5. IOMMUFD_OBJ_VIOMMU can be only manually created via the IOMMU_VIOMMU_ALLOC
    uAPI, provided a dev_id (for the device's physical IOMMU to back the vIOMMU)
@@ -230,15 +196,6 @@ creating the objects and links::
    the vIOMMU object and the HWPT_PAGING, then this vIOMMU object can be used
    as a nesting parent object to allocate an HWPT_NESTED object described above.
 
-6. IOMMUFD_OBJ_VDEVICE can be only manually created via the IOMMU_VDEVICE_ALLOC
-   uAPI, provided a viommu_id for an iommufd_viommu object and a dev_id for an
-   iommufd_device object. The vDEVICE object will be the binding between these
-   two parent objects. Another @virt_id will be also set via the uAPI providing
-   the iommufd core an index to store the vDEVICE object to a vDEVICE array per
-   vIOMMU. If necessary, the IOMMU driver may choose to implement a vdevce_alloc
-   op to init its HW for virtualization feature related to a vDEVICE. Successful
-   completion of this operation sets up the linkages between vIOMMU and device.
-
 A device can only bind to an iommufd due to DMA ownership claim and attach to at
 most one IOAS object (no support of PASID yet).
 
@@ -249,10 +206,7 @@ User visible objects are backed by following datastructures:
 
 - iommufd_ioas for IOMMUFD_OBJ_IOAS.
 - iommufd_device for IOMMUFD_OBJ_DEVICE.
-- iommufd_hwpt_paging for IOMMUFD_OBJ_HWPT_PAGING.
-- iommufd_hwpt_nested for IOMMUFD_OBJ_HWPT_NESTED.
 - iommufd_viommu for IOMMUFD_OBJ_VIOMMU.
-- iommufd_vdevice for IOMMUFD_OBJ_VDEVICE.
 
 Several terminologies when looking at these datastructures:
 
