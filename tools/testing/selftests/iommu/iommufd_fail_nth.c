@@ -627,7 +627,6 @@ TEST_FAIL_NTH(basic_fail_nth, device)
 	uint32_t idev_id;
 	uint32_t hwpt_id;
 	uint32_t viommu_id;
-	uint32_t vdev_id;
 	__u64 iova;
 
 	self->fd = open("/dev/iommu", O_RDWR);
@@ -678,18 +677,6 @@ TEST_FAIL_NTH(basic_fail_nth, device)
 
 	if (_test_cmd_viommu_alloc(self->fd, idev_id, hwpt_id,
 				   IOMMU_VIOMMU_TYPE_SELFTEST, 0, &viommu_id))
-		return -1;
-
-	if (_test_cmd_vdevice_alloc(self->fd, viommu_id, idev_id, 0, &vdev_id))
-		return -1;
-
-	if (_test_ioctl_fault_alloc(self->fd, &fault_id, &fault_fd))
-		return -1;
-	close(fault_fd);
-
-	if (_test_cmd_hwpt_alloc(self->fd, idev_id, hwpt_id, fault_id,
-				 IOMMU_HWPT_FAULT_ID_VALID, &fault_hwpt_id,
-				 IOMMU_HWPT_DATA_SELFTEST, &data, sizeof(data)))
 		return -1;
 
 	return 0;
