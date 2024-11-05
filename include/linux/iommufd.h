@@ -10,6 +10,7 @@
 #include <linux/errno.h>
 #include <linux/refcount.h>
 #include <linux/types.h>
+#include <linux/xarray.h>
 
 struct device;
 struct iommu_user_data;
@@ -22,15 +23,16 @@ struct file;
 struct iommu_group;
 
 enum iommufd_object_type {
-  IOMMUFD_OBJ_NONE,
-  IOMMUFD_OBJ_ANY = IOMMUFD_OBJ_NONE,
-  IOMMUFD_OBJ_DEVICE,
-  IOMMUFD_OBJ_HWPT_PAGING,
-  IOMMUFD_OBJ_HWPT_NESTED,
-  IOMMUFD_OBJ_IOAS,
-  IOMMUFD_OBJ_ACCESS,
-  IOMMUFD_OBJ_FAULT,
-  IOMMUFD_OBJ_VIOMMU,
+	IOMMUFD_OBJ_NONE,
+	IOMMUFD_OBJ_ANY = IOMMUFD_OBJ_NONE,
+	IOMMUFD_OBJ_DEVICE,
+	IOMMUFD_OBJ_HWPT_PAGING,
+	IOMMUFD_OBJ_HWPT_NESTED,
+	IOMMUFD_OBJ_IOAS,
+	IOMMUFD_OBJ_ACCESS,
+	IOMMUFD_OBJ_FAULT,
+	IOMMUFD_OBJ_VIOMMU,
+	IOMMUFD_OBJ_VDEVICE,
 #ifdef CONFIG_IOMMUFD_TEST
   IOMMUFD_OBJ_SELFTEST,
 #endif
@@ -88,7 +90,9 @@ struct iommufd_viommu {
   struct iommu_device *iommu_dev;
   struct iommufd_hwpt_paging *hwpt;
 
-  const struct iommufd_viommu_ops *ops;
+	const struct iommufd_viommu_ops *ops;
+
+	struct xarray vdevs;
 
   unsigned int type;
 };

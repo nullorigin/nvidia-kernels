@@ -35,24 +35,25 @@
  * As well as additional errnos, within specific ioctls.
  */
 enum {
-  IOMMUFD_CMD_BASE = 0x80,
-  IOMMUFD_CMD_DESTROY = IOMMUFD_CMD_BASE,
-  IOMMUFD_CMD_IOAS_ALLOC = 0x81,
-  IOMMUFD_CMD_IOAS_ALLOW_IOVAS = 0x82,
-  IOMMUFD_CMD_IOAS_COPY = 0x83,
-  IOMMUFD_CMD_IOAS_IOVA_RANGES = 0x84,
-  IOMMUFD_CMD_IOAS_MAP = 0x85,
-  IOMMUFD_CMD_IOAS_UNMAP = 0x86,
-  IOMMUFD_CMD_OPTION = 0x87,
-  IOMMUFD_CMD_VFIO_IOAS = 0x88,
-  IOMMUFD_CMD_HWPT_ALLOC = 0x89,
-  IOMMUFD_CMD_GET_HW_INFO = 0x8a,
-  IOMMUFD_CMD_HWPT_SET_DIRTY_TRACKING = 0x8b,
-  IOMMUFD_CMD_HWPT_GET_DIRTY_BITMAP = 0x8c,
-  IOMMUFD_CMD_HWPT_INVALIDATE = 0x8d,
-  IOMMUFD_CMD_FAULT_QUEUE_ALLOC = 0x8e,
-  IOMMUFD_CMD_IOAS_MAP_FILE = 0x8f,
-  IOMMUFD_CMD_VIOMMU_ALLOC = 0x90,
+	IOMMUFD_CMD_BASE = 0x80,
+	IOMMUFD_CMD_DESTROY = IOMMUFD_CMD_BASE,
+	IOMMUFD_CMD_IOAS_ALLOC = 0x81,
+	IOMMUFD_CMD_IOAS_ALLOW_IOVAS = 0x82,
+	IOMMUFD_CMD_IOAS_COPY = 0x83,
+	IOMMUFD_CMD_IOAS_IOVA_RANGES = 0x84,
+	IOMMUFD_CMD_IOAS_MAP = 0x85,
+	IOMMUFD_CMD_IOAS_UNMAP = 0x86,
+	IOMMUFD_CMD_OPTION = 0x87,
+	IOMMUFD_CMD_VFIO_IOAS = 0x88,
+	IOMMUFD_CMD_HWPT_ALLOC = 0x89,
+	IOMMUFD_CMD_GET_HW_INFO = 0x8a,
+	IOMMUFD_CMD_HWPT_SET_DIRTY_TRACKING = 0x8b,
+	IOMMUFD_CMD_HWPT_GET_DIRTY_BITMAP = 0x8c,
+	IOMMUFD_CMD_HWPT_INVALIDATE = 0x8d,
+	IOMMUFD_CMD_FAULT_QUEUE_ALLOC = 0x8e,
+	IOMMUFD_CMD_IOAS_MAP_FILE = 0x8f,
+	IOMMUFD_CMD_VIOMMU_ALLOC = 0x90,
+	IOMMUFD_CMD_VDEVICE_ALLOC = 0x91,
 };
 
 /**
@@ -967,4 +968,25 @@ struct iommu_viommu_alloc {
   __u32 out_viommu_id;
 };
 #define IOMMU_VIOMMU_ALLOC _IO(IOMMUFD_TYPE, IOMMUFD_CMD_VIOMMU_ALLOC)
+
+/**
+ * struct iommu_vdevice_alloc - ioctl(IOMMU_VDEVICE_ALLOC)
+ * @size: sizeof(struct iommu_vdevice_alloc)
+ * @viommu_id: vIOMMU ID to associate with the virtual device
+ * @dev_id: The physical device to allocate a virtual instance on the vIOMMU
+ * @out_vdevice_id: Object handle for the vDevice. Pass to IOMMU_DESTORY
+ * @virt_id: Virtual device ID per vIOMMU, e.g. vSID of ARM SMMUv3, vDeviceID
+ *           of AMD IOMMU, and vRID of a nested Intel VT-d to a Context Table
+ *
+ * Allocate a virtual device instance (for a physical device) against a vIOMMU.
+ * This instance holds the device's information (related to its vIOMMU) in a VM.
+ */
+struct iommu_vdevice_alloc {
+	__u32 size;
+	__u32 viommu_id;
+	__u32 dev_id;
+	__u32 out_vdevice_id;
+	__aligned_u64 virt_id;
+};
+#define IOMMU_VDEVICE_ALLOC _IO(IOMMUFD_TYPE, IOMMUFD_CMD_VDEVICE_ALLOC)
 #endif
